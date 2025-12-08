@@ -18,7 +18,7 @@
 ;; ============================================================================
 
 ;; Suppress cl deprecation warning
-(setq byte-compile-warnings '(not obsolete))
+(setq byte-compile-warnings '(not obsolete cl-functions))
 (setq warning-suppress-log-types '((comp) (bytecomp)))
 (setq warning-suppress-types '((comp) (bytecomp)))
 
@@ -28,20 +28,7 @@
 ;; Disable auto-save files (the ones with #...#)
 (setq auto-save-default nil)
 
-;; Fix PATH for macOS GUI Emacs FIRST before anything else (portable version)
-(when (eq system-type 'darwin)
-  ;; Ensure cargo/rustup binaries are in exec-path using HOME variable
-  (let ((cargo-bin (expand-file-name "~/.cargo/bin")))
-    (when (file-directory-p cargo-bin)
-      (unless (member cargo-bin exec-path)
-        (setenv "PATH" (concat cargo-bin ":" (getenv "PATH")))
-        (push cargo-bin exec-path))))
-  ;; Also add common macOS paths if they exist
-  (dolist (path '("/usr/local/bin" "/opt/homebrew/bin"))
-    (when (file-directory-p path)
-      (unless (member path exec-path)
-        (setenv "PATH" (concat path ":" (getenv "PATH")))
-        (push path exec-path)))))
+;; PATH setup handled by exec-path-from-shell package below
 
 ;; Bootstrap straight.el package manager
 ;; Hide the *straight-process* buffer (space prefix = hidden buffer in Emacs)
@@ -59,45 +46,26 @@
       (eval-print-last-sexp)))
   (load bootstrap-file nil 'nomessage))
 
-;; Package management setup
-(require 'package)
+;; Use straight.el with use-package (no need for package.el)
 (require 'cl-lib)  ;; For cl-remove-if and other cl functions
-(setq package-archives '(("gnu" . "https://elpa.gnu.org/packages/")
-                         ("nongnu" . "https://elpa.nongnu.org/nongnu/")
-                         ("melpa" . "https://melpa.org/packages/")
-                         ("melpa-stable" . "https://stable.melpa.org/packages/")))
-(package-initialize)
-
-;; Install use-package if not already installed
-(unless (package-installed-p 'use-package)
-  (package-refresh-contents)
-  (package-install 'use-package))
-
-;; Configure use-package
-(require 'use-package)
-(setq use-package-always-ensure t)  ;; Auto-install packages
-
-;; Integrate straight.el with use-package
 (straight-use-package 'use-package)
+(setq straight-use-package-by-default t)  ;; Auto-install packages via straight
 
 ;; Suppress compilation warnings from packages
 (setq native-comp-async-report-warnings-errors nil)
 (setq warning-minimum-level :error)
 
 
-;;highlight bracket
-(defadvice show-paren-function
-    (after show-matching-paren-offscreen activate)
-  "If the matching paren is offscreen, show the matching line in the
-        echo area. Has no effect if the character before point is not of
-        the syntax class ')'."
-  (interactive)
+;; Highlight matching bracket
+(show-paren-mode 1)
+(defun my/show-matching-paren-offscreen (&rest _)
+  "Show matching line in echo area if matching paren is offscreen."
   (let* ((cb (char-before (point)))
          (matching-text (and cb
                             (char-equal (char-syntax cb) ?\))
                             (blink-matching-open))))
     (when matching-text (message matching-text))))
-(show-paren-mode 1)
+(advice-add 'show-paren-function :after #'my/show-matching-paren-offscreen)
 
 ;;clock
 (display-time-mode 1)
@@ -136,11 +104,6 @@
     (message "Copied to clipboard")
     (deactivate-mark)))
 
-(defun paste-from-macos-clipboard ()
-  "Paste from macOS clipboard."
-  (interactive)
-  (insert (shell-command-to-string "pbpaste")))
-
 (defun my-smart-paste ()
   "Sync system clipboard to kill-ring, then paste."
   (interactive)
@@ -161,21 +124,28 @@
     (kill-ring-save (region-beginning) (region-end))
     (copy-to-macos-clipboard)))
 
-;; Disable startup messages
-(setq-default message-log-max nil)
-(when (get-buffer "*Messages*")
-  (kill-buffer "*Messages*"))
+;; Disable startup messages (keep *Messages* for debugging)
+(setq inhibit-startup-message t)
+
+;; Rename *Shell Command Output* to a hidden buffer (space prefix hides from C-x b)
+(defun my/hide-shell-command-output-buffer ()
+  (when-let ((buf (get-buffer "*Shell Command Output*")))
+    (with-current-buffer buf
+      (rename-buffer " *Shell Command Output*" t))))
+
+(add-hook 'window-configuration-change-hook #'my/hide-shell-command-output-buffer)
 
 ;; exec-path-from-shell - ensure Emacs has the same PATH as shell
 (use-package exec-path-from-shell
-  :if (memq window-system '(mac ns x))
+  :if (eq system-type 'darwin)
   :config
   (exec-path-from-shell-initialize))
 
-;; color-identifiers-mode
+;; color-identifiers-mode (enable per-mode instead of globally for performance)
 (use-package color-identifiers-mode
-  :config
-  (global-color-identifiers-mode 1))
+  :hook ((rust-mode . color-identifiers-mode)
+         (js-mode . color-identifiers-mode)
+         (typescript-mode . color-identifiers-mode)))
 
 (add-to-list 'auto-mode-alist '("\\.js$" . js-mode))
 
@@ -216,16 +186,30 @@
 (use-package flycheck-rust
   :hook (flycheck-mode . flycheck-rust-setup))
 
-;; Rust M-. for finding definitions using grep
-(with-eval-after-load 'rust-mode
-  (define-key rust-mode-map (kbd "M-.")
-    (lambda ()
-      (interactive)
-      (let ((symbol (thing-at-point 'symbol)))
-        (when symbol
-          (if (fboundp 'projectile-project-root)
-              (rgrep (concat "\\b" symbol "\\b") "*.rs" (projectile-project-root))
-            (rgrep (concat "\\b" symbol "\\b") "*.rs" default-directory)))))))
+;; LSP mode for IDE features (completion, go-to-definition, etc.)
+(use-package lsp-mode
+  :hook ((rust-mode . lsp-deferred))
+  :commands (lsp lsp-deferred)
+  :config
+  (setq lsp-rust-analyzer-cargo-watch-command "clippy")
+  (setq lsp-eldoc-render-all t)
+  (setq lsp-idle-delay 0.5)
+  ;; Auto-import projects without prompting
+  (setq lsp-auto-guess-root t)
+  ;; Disable features you might find noisy (uncomment if needed)
+  ;; (setq lsp-enable-symbol-highlighting nil)
+  ;; (setq lsp-signature-auto-activate nil)
+  )
+
+;; LSP UI enhancements
+(use-package lsp-ui
+  :commands lsp-ui-mode
+  :config
+  (setq lsp-ui-doc-enable t)
+  (setq lsp-ui-doc-position 'at-point)
+  (setq lsp-ui-sideline-enable t)
+  (setq lsp-ui-sideline-show-hover nil)
+  (setq lsp-ui-sideline-show-diagnostics t))
 
 ;; TOML support for Cargo.toml files
 (use-package toml-mode
@@ -245,9 +229,6 @@
   :hook (markdown-mode . visual-line-mode))
 
 
-;; jquery-doc - removed, no longer needed
-
-;; C/C++ support removed - cc-mode settings removed
 (setq-default tab-width 4 indent-tabs-mode t)
 
 ;; Autopair (not available in melpa, skip)
@@ -259,20 +240,16 @@
   :config
   (yas-global-mode 1))
 
-;; auto-complete
-(use-package auto-complete
+;; Company mode (completion framework, works great with LSP)
+(use-package company
+  :hook (prog-mode . company-mode)
   :config
-  (require 'auto-complete-config)
-  (ac-config-default)
-  (ac-set-trigger-key "TAB")
-  (ac-set-trigger-key "<tab>"))
-
-;; C/C++ support removed - no longer needed
-
-;; yasnippet compatibility fixes
-(when (fboundp 'yas--get-snippet-tables)
-  (defalias 'yas/get-snippet-tables 'yas--get-snippet-tables)
-  (defalias 'yas/table-hash 'yas--table-hash))
+  (setq company-idle-delay 0.2)
+  (setq company-minimum-prefix-length 1)
+  (setq company-selection-wrap-around t)
+  :bind (:map company-active-map
+              ("C-w" . company-select-previous)
+              ("C-s" . company-select-next)))
 
 ;; Color theme
 (add-to-list 'default-frame-alist '(foreground-color . "#E0DFDB"))
@@ -283,8 +260,6 @@
     (set-face-attribute 'default nil
                         :family "JetBrains Mono" :height 170 :weight 'normal)
   (error (message "JetBrains Mono font not available, using default")))
-
-;; Comment block function removed (was for C/C++)
 
 ;; Smart scroll function for M-w
 (defun smart-scroll-up ()
@@ -344,7 +319,7 @@
   (setq ispell-program-name nil)))
 
 ;; Only enable flyspell if a spell checker is found
-(when (and ispell-program-name (executable-find ispell-program-name))
+(when (and (boundp 'ispell-program-name) ispell-program-name (executable-find ispell-program-name))
   (add-hook 'text-mode-hook 'flyspell-mode)
   (add-hook 'prog-mode-hook 'flyspell-prog-mode)
   (eval-after-load "flyspell"
@@ -365,6 +340,8 @@
 (define-key my-keys-minor-mode-map (kbd "C-w") 'previous-line)
 (define-key my-keys-minor-mode-map (kbd "C-s") 'next-line)
 (define-key my-keys-minor-mode-map (kbd "C-f") 'isearch-forward)
+;; Make C-g exit isearch and stay at current match (instead of going back)
+(define-key isearch-mode-map (kbd "C-g") 'isearch-exit)
 (define-key my-keys-minor-mode-map (kbd "C-q") 'beginning-of-line)
 (define-key my-keys-minor-mode-map (kbd "M-d") 'forward-word)
 (define-key my-keys-minor-mode-map (kbd "M-a") 'backward-word)
@@ -386,7 +363,6 @@
 (define-key my-keys-minor-mode-map (kbd "M-s") 'scroll-up-command)
 (define-key my-keys-minor-mode-map (kbd "M-w") 'smart-scroll-up)
 (define-key my-keys-minor-mode-map (kbd "C-j") 'newline-and-indent)
-;; Removed M-j and M-m keybindings (were for C/C++ comments)
 (define-key my-keys-minor-mode-map (kbd "C-c") 'my-kill-ring-save)
 (define-key my-keys-minor-mode-map (kbd "C-v") 'my-smart-paste)
 (define-key my-keys-minor-mode-map (kbd "C-x k") 'kill-current-buffer)
@@ -470,10 +446,10 @@
 
 ;; Vterm - full terminal emulator
 (use-package vterm
-  :ensure t
   :config
   (setq vterm-kill-buffer-on-exit t)
-  (setq vterm-max-scrollback 10000))
+  (setq vterm-max-scrollback 10000)
+  (setq vterm-keymap-exceptions '("C-x" "C-u" "C-g" "C-h" "M-x" "M-o")))
 
 
 (message "Emacs configuration loaded successfully!")
