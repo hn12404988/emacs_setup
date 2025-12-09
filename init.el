@@ -49,6 +49,7 @@
 ;; Use straight.el with use-package (no need for package.el)
 (require 'cl-lib)  ;; For cl-remove-if and other cl functions
 (straight-use-package 'use-package)
+(require 'use-package)
 (setq straight-use-package-by-default t)  ;; Auto-install packages via straight
 
 ;; Suppress compilation warnings from packages
@@ -135,6 +136,16 @@
 
 (add-hook 'window-configuration-change-hook #'my/hide-shell-command-output-buffer)
 
+;; Hide noisy LSP/rust-analyzer buffers (rename with space prefix)
+(defun my/hide-noisy-buffers ()
+  "Hide buffers that clutter the buffer list by adding space prefix."
+  (dolist (buf-name '("*rust-analyzer*" "*rust-analyzer::stderr*" "*lsp-log*" "*Messages*"))
+    (when-let ((buf (get-buffer buf-name)))
+      (with-current-buffer buf
+        (rename-buffer (concat " " buf-name) t)))))
+
+(add-hook 'window-configuration-change-hook #'my/hide-noisy-buffers)
+
 ;; exec-path-from-shell - ensure Emacs has the same PATH as shell
 (use-package exec-path-from-shell
   :if (eq system-type 'darwin)
@@ -196,6 +207,8 @@
   (setq lsp-idle-delay 0.5)
   ;; Auto-import projects without prompting
   (setq lsp-auto-guess-root t)
+  ;; Hide LSP buffers (space prefix = hidden from C-x b)
+  (setq lsp-log-io-mode " *lsp-log*")
   ;; Disable features you might find noisy (uncomment if needed)
   ;; (setq lsp-enable-symbol-highlighting nil)
   ;; (setq lsp-signature-auto-activate nil)
@@ -450,6 +463,3 @@
   (setq vterm-kill-buffer-on-exit t)
   (setq vterm-max-scrollback 10000)
   (setq vterm-keymap-exceptions '("C-x" "C-u" "C-g" "C-h" "M-x" "M-o")))
-
-
-(message "Emacs configuration loaded successfully!")
