@@ -191,8 +191,7 @@
   :config
   (setq rust-format-on-save t)
   (setq rust-indent-offset 4)
-  (add-hook 'rust-mode-hook #'flycheck-mode)
-  (add-hook 'rust-mode-hook #'eldoc-mode))
+  (add-hook 'rust-mode-hook #'flycheck-mode))
 
 (use-package cargo
   :hook (rust-mode . cargo-minor-mode))
@@ -206,7 +205,7 @@
   :commands (lsp lsp-deferred)
   :config
   (setq lsp-rust-analyzer-cargo-watch-command "clippy")
-  (setq lsp-eldoc-render-all t)
+  (setq lsp-eldoc-enable-hover nil)
   (setq lsp-idle-delay 0.5)
   ;; Auto-import projects without prompting
   (setq lsp-auto-guess-root t)
