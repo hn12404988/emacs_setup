@@ -28,6 +28,9 @@
 ;; Disable auto-save files (the ones with #...#)
 (setq auto-save-default nil)
 
+;; Auto-revert buffers when files change on disk
+(global-auto-revert-mode 1)
+
 ;; PATH setup handled by exec-path-from-shell package below
 
 ;; Bootstrap straight.el package manager
