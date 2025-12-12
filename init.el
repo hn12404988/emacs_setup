@@ -153,6 +153,8 @@
 (use-package exec-path-from-shell
   :if (eq system-type 'darwin)
   :config
+  ;; Use non-interactive shell to speed up initialization
+  (setq exec-path-from-shell-arguments nil)
   (exec-path-from-shell-initialize))
 
 ;; color-identifiers-mode (enable per-mode instead of globally for performance)
@@ -253,7 +255,12 @@
 ;; yasnippet
 (use-package yasnippet
   :config
+  (setq yas-verbosity 0)  ;; Suppress "no snippets found" warning
   (yas-global-mode 1))
+
+;; Optional: install common snippets collection
+(use-package yasnippet-snippets
+  :after yasnippet)
 
 ;; Company mode (completion framework, works great with LSP)
 (use-package company
@@ -405,7 +412,9 @@
 ;; Define minor mode
 (define-minor-mode my-keys-minor-mode
   "A minor mode so that my key settings override annoying major modes."
-  t " my-keys" 'my-keys-minor-mode-map)
+  :init-value t
+  :lighter " my-keys"
+  :keymap my-keys-minor-mode-map)
 
 (my-keys-minor-mode 1)
 
@@ -461,7 +470,14 @@
 
 ;; Vterm - full terminal emulator
 (use-package vterm
+  :commands vterm
   :config
   (setq vterm-kill-buffer-on-exit t)
   (setq vterm-max-scrollback 10000)
-  (setq vterm-keymap-exceptions '("C-x" "C-u" "C-g" "C-h" "M-x" "M-o")))
+  (setq vterm-keymap-exceptions '("C-x" "C-u" "C-g" "C-h" "M-x" "M-o"))
+  ;; ESC bindings for GUI Emacs
+  (define-key vterm-mode-map [escape] #'vterm-send-escape)
+  ;; Bind C-g to send ESC (reliable in both terminal and GUI)
+  (define-key vterm-mode-map (kbd "C-g") #'vterm-send-escape)
+  ;; Also bind C-c C-e as alternative
+  (define-key vterm-mode-map (kbd "C-c C-e") #'vterm-send-escape))
