@@ -80,18 +80,9 @@
 (ido-mode 1)
 (setq ido-default-buffer-method 'selected-window)
 
-;; Mac-specific settings
+;; Mac-specific settings - use Option as Meta in terminal
 (when (eq system-type 'darwin)
-  ;; GUI Emacs settings
-  (when (display-graphic-p)
-    (setq mac-option-key-is-meta nil
-          mac-command-key-is-meta t
-          mac-command-modifier 'meta
-          mac-option-modifier 'none))
-  
-  ;; Terminal Emacs settings
   (unless (display-graphic-p)
-    ;; Use Option as Meta in terminal
     (setq mac-option-key-is-meta t
           mac-option-modifier 'meta)))
 
