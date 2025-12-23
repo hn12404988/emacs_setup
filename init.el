@@ -19,8 +19,8 @@
 
 ;; Suppress cl deprecation warning
 (setq byte-compile-warnings '(not obsolete cl-functions))
-(setq warning-suppress-log-types '((comp) (bytecomp)))
-(setq warning-suppress-types '((comp) (bytecomp)))
+(setq warning-suppress-log-types '((comp) (bytecomp) (tramp)))
+(setq warning-suppress-types '((comp) (bytecomp) (tramp)))
 
 ;; Disable backup files (the ones ending with ~)
 (setq make-backup-files nil)
@@ -472,3 +472,34 @@
   (define-key vterm-mode-map (kbd "C-g") #'vterm-send-escape)
   ;; Also bind C-c C-e as alternative
   (define-key vterm-mode-map (kbd "C-c C-e") #'vterm-send-escape))
+
+;; Eat - Emulate A Terminal (alternative to vterm, may have less flicker)
+(use-package eat
+  :commands eat
+  :config
+  (setq eat-kill-buffer-on-exit t)
+  ;; Enable shell integration for better experience
+  (add-hook 'eshell-load-hook #'eat-eshell-mode)
+  ;; ESC handling
+  (define-key eat-semi-char-mode-map (kbd "C-g") #'eat-self-input)
+  (define-key eat-semi-char-mode-map (kbd "C-c C-e") #'eat-self-input))
+
+;; inheritenv - required dependency for claude-code.el
+(use-package inheritenv
+  :straight (:host github :repo "purcell/inheritenv"))
+
+;; Claude Code integration
+(use-package claude-code
+  :straight (:host github :repo "stevemolitor/claude-code.el")
+  :config
+  (setq claude-code-terminal-backend 'eat)  ;; Use eat instead of vterm
+  (claude-code-mode)
+  :bind-keymap ("C-c l" . claude-code-command-map))
+;; Key bindings (prefix C-c l):
+;;   C-c l c - Start Claude
+;;   C-c l s - Send command via minibuffer
+;;   C-c l r - Send region/buffer
+;;   C-c l e - Fix error at point
+;;   C-c l t - Toggle Claude window
+;;   C-c l b - Switch to Claude buffer
+;;   C-c l m - Transient menu
