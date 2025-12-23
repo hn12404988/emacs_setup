@@ -495,6 +495,12 @@
   (setq claude-code-terminal-backend 'eat)  ;; Use eat instead of vterm
   (claude-code-mode)
   :bind-keymap ("C-c l" . claude-code-command-map))
+
+(defun my/claude-code-start-dev ()
+  "Start Claude Code with CLAUDE.dev.md"
+  (interactive)
+  (let ((claude-code-program-switches '("--system-prompt-file" "./CLAUDE.dev.md")))
+    (claude-code-start)))
 ;; Key bindings (prefix C-c l):
 ;;   C-c l c - Start Claude
 ;;   C-c l s - Send command via minibuffer
