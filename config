@@ -1,5 +1,8 @@
 # Ghostty Configuration
 
+# Use Option key as Meta for Emacs
+macos-option-as-alt = true
+
 # Remap Command (super) to send ESC sequences (Meta for Emacs)
 # Based on keybindings in init.el
 
