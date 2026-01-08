@@ -12,7 +12,6 @@ keybind = super+d=esc:d
 keybind = super+e=esc:e
 keybind = super+q=esc:q
 keybind = super+s=esc:s
-keybind = super+w=esc:w
 keybind = super+x=esc:x
 
 # Numbers used in init.el
@@ -33,7 +32,6 @@ keybind = super+n=esc:n
 keybind = super+o=esc:o
 keybind = super+p=esc:p
 keybind = super+r=esc:r
-keybind = super+t=esc:t
 keybind = super+u=esc:u
 keybind = super+v=esc:v
 keybind = super+y=esc:y
@@ -48,3 +46,11 @@ keybind = super+shift+five=esc:%
 
 # Backspace for M-DEL (backward-kill-word)
 keybind = super+backspace=esc:\x7f
+
+# Page scroll
+keybind = opt+w=scroll_page_up
+keybind = opt+s=scroll_page_down
+
+# Tab management
+keybind = super+t=new_tab
+keybind = super+w=close_surface
