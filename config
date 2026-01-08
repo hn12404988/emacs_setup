@@ -3,49 +3,9 @@
 # Use Option key as Meta for Emacs
 macos-option-as-alt = true
 
-# Remap Command (super) to send ESC sequences (Meta for Emacs)
-# Based on keybindings in init.el
-
-# Letters used in init.el
-keybind = super+a=esc:a
-keybind = super+d=esc:d
-keybind = super+e=esc:e
-keybind = super+q=esc:q
-keybind = super+s=esc:s
-keybind = super+x=esc:x
-
-# Numbers used in init.el
-keybind = super+nine=esc:9
-keybind = super+zero=esc:0
-
-# Common Emacs Meta bindings
-keybind = super+b=esc:b
-keybind = super+f=esc:f
-keybind = super+g=esc:g
-keybind = super+h=esc:h
-keybind = super+i=esc:i
-keybind = super+j=esc:j
-keybind = super+k=esc:k
-keybind = super+l=esc:l
-keybind = super+m=esc:m
-keybind = super+n=esc:n
-keybind = super+o=esc:o
-keybind = super+p=esc:p
-keybind = super+r=esc:r
-keybind = super+u=esc:u
-keybind = super+v=esc:v
-keybind = super+y=esc:y
-keybind = super+z=esc:z
-
-# M-< and M-> (beginning/end of buffer)
-keybind = super+shift+comma=esc:<
-keybind = super+shift+period=esc:>
-
-# M-% (query-replace)
-keybind = super+shift+five=esc:%
-
-# Backspace for M-DEL (backward-kill-word)
-keybind = super+backspace=esc:\x7f
+# Clipboard
+keybind = super+c=copy_to_clipboard
+keybind = super+v=paste_from_clipboard
 
 # Page scroll
 keybind = opt+w=scroll_page_up
