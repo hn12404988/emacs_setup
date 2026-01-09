@@ -397,8 +397,9 @@
 
 ;; Global key settings
 (global-set-key (kbd "C-x C-s") (kbd "C-u C-x s"))
-(global-set-key (kbd "s-s") (kbd "C-u 1 M-s"))
-(global-set-key (kbd "s-w") (kbd "C-u 1 M-w"))
+;; Scroll page up/down now uses Option+s/w (M-s/M-w) defined above
+;; (global-set-key (kbd "s-s") (kbd "C-u 1 M-s"))  ; Command+s removed
+;; (global-set-key (kbd "s-w") (kbd "C-u 1 M-w"))  ; Command+w removed
 
 ;; Define minor mode
 (define-minor-mode my-keys-minor-mode
