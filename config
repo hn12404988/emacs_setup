@@ -7,9 +7,14 @@ macos-option-as-alt = true
 keybind = super+c=copy_to_clipboard
 keybind = super+v=paste_from_clipboard
 
-# Page scroll
-keybind = opt+w=scroll_page_up
-keybind = opt+s=scroll_page_down
+# Page scroll for Emacs - Option+s/w sends M-s/M-w
+# (Explicit keybind needed because Unicode Hex Input captures Option at OS level)
+keybind = opt+s=text:\x1bs
+keybind = opt+w=text:\x1bw
+
+# Page scroll for Ghostty terminal scrollback - Shift+Option+s/w
+keybind = shift+opt+s=scroll_page_down
+keybind = shift+opt+w=scroll_page_up
 
 # Tab management
 keybind = super+t=new_tab
