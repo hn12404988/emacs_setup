@@ -355,7 +355,7 @@
 (define-key my-keys-minor-mode-map (kbd "C-f") 'isearch-forward)
 ;; Make C-g exit isearch and stay at current match (instead of going back)
 (define-key isearch-mode-map (kbd "C-g") 'isearch-exit)
-(define-key my-keys-minor-mode-map (kbd "C-q") 'beginning-of-line)
+(define-key my-keys-minor-mode-map (kbd "C-q") 'back-to-indentation)
 (define-key my-keys-minor-mode-map (kbd "M-d") 'forward-word)
 (define-key my-keys-minor-mode-map (kbd "M-a") 'backward-word)
 (define-key my-keys-minor-mode-map (kbd "M-q") 'delete-backward-char)
