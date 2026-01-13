@@ -379,6 +379,7 @@
 (define-key my-keys-minor-mode-map (kbd "C-c") 'my-kill-ring-save)
 (define-key my-keys-minor-mode-map (kbd "C-v") 'my-smart-paste)
 (define-key my-keys-minor-mode-map (kbd "C-x k") 'kill-current-buffer)
+(define-key my-keys-minor-mode-map (kbd "C-k") 'kill-whole-line)
 
 ;; Magit
 (use-package magit
