@@ -355,6 +355,9 @@
 (define-key my-keys-minor-mode-map (kbd "C-f") 'isearch-forward)
 ;; Make C-g exit isearch and stay at current match (instead of going back)
 (define-key isearch-mode-map (kbd "C-g") 'isearch-exit)
+;; Make RET go to next match (wraps around at end)
+(define-key isearch-mode-map (kbd "RET") 'isearch-repeat-forward)
+(setq isearch-wrap-pause 'no)  ;; Wrap immediately without pausing
 (define-key my-keys-minor-mode-map (kbd "C-q") 'back-to-indentation)
 (define-key my-keys-minor-mode-map (kbd "M-d") 'forward-word)
 (define-key my-keys-minor-mode-map (kbd "M-a") 'backward-word)
