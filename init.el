@@ -359,6 +359,7 @@
 (define-key isearch-mode-map (kbd "RET") 'isearch-repeat-forward)
 (setq isearch-wrap-pause 'no)  ;; Wrap immediately without pausing
 (define-key my-keys-minor-mode-map (kbd "C-q") 'back-to-indentation)
+(define-key my-keys-minor-mode-map (kbd "C-e") 'move-end-of-line)
 (define-key my-keys-minor-mode-map (kbd "M-d") 'forward-word)
 (define-key my-keys-minor-mode-map (kbd "M-a") 'backward-word)
 (define-key my-keys-minor-mode-map (kbd "M-q") 'delete-backward-char)
