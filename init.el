@@ -284,6 +284,12 @@
      ;; We're already at the top, move cursor to beginning
      (goto-char (point-min)))))
 
+;; Kill back to the very beginning of the line (column 0)
+(defun kill-back-to-line-start ()
+  "Kill from point back to the beginning of the line."
+  (interactive)
+  (kill-line 0))
+
 ;; Kill current buffer without prompting
 (defun kill-current-buffer ()
   "Kill the current buffer without prompting."
@@ -364,11 +370,16 @@
 (define-key my-keys-minor-mode-map (kbd "M-a") 'backward-word)
 (define-key my-keys-minor-mode-map (kbd "M-q") 'delete-backward-char)
 (define-key my-keys-minor-mode-map (kbd "M-e") 'delete-forward-char)
-;; Multiple bindings for C-backspace to ensure it works
-(define-key my-keys-minor-mode-map (kbd "C-DEL") 'backward-kill-word)
-(define-key my-keys-minor-mode-map (kbd "<C-backspace>") 'backward-kill-word)
-(define-key my-keys-minor-mode-map [C-backspace] 'backward-kill-word)
-(global-set-key (kbd "<C-backspace>") 'backward-kill-word)
+;; Multiple bindings for C-backspace to delete back to line start
+;; Note: Many terminals send C-h for C-backspace, so we bind that too
+;; Help is still available via F1
+(define-key my-keys-minor-mode-map (kbd "C-DEL") 'kill-back-to-line-start)
+(define-key my-keys-minor-mode-map (kbd "<C-backspace>") 'kill-back-to-line-start)
+(define-key my-keys-minor-mode-map [C-backspace] 'kill-back-to-line-start)
+(define-key my-keys-minor-mode-map (kbd "C-h") 'kill-back-to-line-start)
+(global-set-key (kbd "<C-backspace>") 'kill-back-to-line-start)
+(global-set-key [C-backspace] 'kill-back-to-line-start)
+(global-set-key (kbd "C-h") 'kill-back-to-line-start)
 ;; Try M-DEL as an alternative (Meta/Alt + backspace)
 (define-key my-keys-minor-mode-map (kbd "M-DEL") 'backward-kill-word)
 (define-key my-keys-minor-mode-map (kbd "M-9") 'beginning-of-buffer)
