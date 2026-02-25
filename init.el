@@ -286,6 +286,28 @@
      ;; We're already at the top, move cursor to beginning
      (goto-char (point-min)))))
 
+;; Smart backward kill: word -> line start -> backspace
+(defun smart-backward-kill ()
+  "Smart backward kill with three behaviors:
+1. If there's a word to the left, kill the word (backward-kill-word)
+2. If at the start of text (only whitespace to left), kill to line start (column 0)
+3. If already at column 0, act like backspace (join with previous line)"
+  (interactive)
+  (cond
+   ;; At column 0: act like backspace
+   ((zerop (current-column))
+    (if (bobp)
+        (message "Beginning of buffer")
+      (delete-backward-char 1)))
+   ;; Only whitespace to the left: kill to line start
+   ((save-excursion
+      (skip-chars-backward " \t")
+      (bolp))
+    (kill-line 0))
+   ;; Otherwise: kill word
+   (t
+    (backward-kill-word 1))))
+
 ;; Kill current buffer without prompting
 (defun kill-current-buffer ()
   "Kill the current buffer without prompting."
@@ -366,11 +388,14 @@
 (define-key my-keys-minor-mode-map (kbd "M-a") 'backward-word)
 (define-key my-keys-minor-mode-map (kbd "M-q") 'delete-backward-char)
 (define-key my-keys-minor-mode-map (kbd "M-e") 'delete-forward-char)
-;; Multiple bindings for C-backspace to ensure it works
-(define-key my-keys-minor-mode-map (kbd "C-DEL") 'backward-kill-word)
-(define-key my-keys-minor-mode-map (kbd "<C-backspace>") 'backward-kill-word)
-(define-key my-keys-minor-mode-map [C-backspace] 'backward-kill-word)
-(global-set-key (kbd "<C-backspace>") 'backward-kill-word)
+;; Multiple bindings for C-backspace with smart behavior
+(define-key my-keys-minor-mode-map (kbd "C-DEL") 'smart-backward-kill)
+(define-key my-keys-minor-mode-map (kbd "<C-backspace>") 'smart-backward-kill)
+(define-key my-keys-minor-mode-map [C-backspace] 'smart-backward-kill)
+(global-set-key (kbd "<C-backspace>") 'smart-backward-kill)
+;; In terminals, C-backspace sends C-h (ASCII 8), so bind that too
+;; Help is still available via F1
+(define-key my-keys-minor-mode-map (kbd "C-h") 'smart-backward-kill)
 ;; Try M-DEL as an alternative (Meta/Alt + backspace)
 (define-key my-keys-minor-mode-map (kbd "M-DEL") 'backward-kill-word)
 ;; In terminal, Ctrl+Backspace sends C-h (the help prefix), so rebind it.
