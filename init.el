@@ -59,6 +59,13 @@
 (setq native-comp-async-report-warnings-errors nil)
 (setq warning-minimum-level :error)
 
+;; Diminish - hide noisy minor mode lighters from mode line
+;; Keeps: LSP, FlyC (useful info). Hides the rest.
+(use-package diminish
+  :config
+  (with-eval-after-load 'eldoc (diminish 'eldoc-mode))
+  (with-eval-after-load 'flyspell (diminish 'flyspell-mode))
+  (with-eval-after-load 'lsp-lens (diminish 'lsp-lens-mode)))
 
 ;; Highlight matching bracket
 (show-paren-mode 1)
@@ -150,6 +157,7 @@
 
 ;; color-identifiers-mode (enable per-mode instead of globally for performance)
 (use-package color-identifiers-mode
+  :diminish
   :hook ((rust-mode . color-identifiers-mode)
          (js-mode . color-identifiers-mode)
          (typescript-mode . color-identifiers-mode)))
@@ -173,6 +181,7 @@
 
 ;; Projectile for project management
 (use-package projectile
+  :diminish
   :config
   (projectile-mode +1)
   ;; Include git-ignored files (like .env) in projectile-find-file
@@ -192,6 +201,7 @@
   (add-hook 'rust-mode-hook #'flycheck-mode))
 
 (use-package cargo
+  :diminish cargo-minor-mode
   :hook (rust-mode . cargo-minor-mode))
 
 (use-package flycheck-rust
@@ -263,6 +273,7 @@
 
 ;; yasnippet
 (use-package yasnippet
+  :diminish yas-minor-mode
   :config
   (setq yas-verbosity 0)  ;; Suppress "no snippets found" warning
   (yas-global-mode 1))
@@ -282,15 +293,177 @@
 ;;               ("C-w" . company-select-previous)
 ;;               ("C-s" . company-select-next)))
 
-;; Color theme
-(add-to-list 'default-frame-alist '(foreground-color . "#E0DFDB"))
-(add-to-list 'default-frame-alist '(background-color . "black"))
+;; ==========================================================================
+;; PIP-BOY THEME - Vault-Tec Approved Terminal Display
+;; Green phosphor CRT aesthetic inspired by the RobCo Pip-Boy 3000
+;; ==========================================================================
+
+;; Color palette
+(defvar pipboy-green       "#20C20E" "Primary phosphor green - main text.")
+(defvar pipboy-bright      "#33FF33" "Bright green - keywords, highlights.")
+(defvar pipboy-medium      "#18a010" "Medium green - types, functions.")
+(defvar pipboy-dim         "#0f6e0a" "Dim green - comments, secondary text.")
+(defvar pipboy-dark        "#0a3d08" "Dark green - subtle backgrounds.")
+(defvar pipboy-bg          "#0a0a0a" "Near-black background.")
+(defvar pipboy-bg-light    "#111611" "Slightly lighter background for contrast.")
+(defvar pipboy-region      "#1a3a1a" "Selection/region background.")
+(defvar pipboy-amber       "#FF8C00" "Amber - warnings, Pip-Boy alert color.")
+(defvar pipboy-red         "#CC3333" "Red - errors only.")
+;; Modern syntax colors (colorful but still feels techy on the green CRT)
+(defvar pipboy-cyan        "#61DAFB" "Cyan - functions.")
+(defvar pipboy-gold        "#E5C07B" "Gold - strings.")
+(defvar pipboy-teal        "#4EC9B0" "Teal - types.")
+(defvar pipboy-orange      "#D19A66" "Warm orange - constants, numbers.")
+(defvar pipboy-blue        "#9CDCFE" "Light blue - variables.")
+(defvar pipboy-purple      "#C586C0" "Soft purple - builtins, preprocessor.")
+(defvar pipboy-doc-green   "#6A9955" "Muted green - doc strings.")
+
+;; Frame defaults
+(add-to-list 'default-frame-alist `(foreground-color . ,pipboy-green))
+(add-to-list 'default-frame-alist `(background-color . ,pipboy-bg))
 
 ;; Font settings
 (condition-case nil
     (set-face-attribute 'default nil
                         :family "JetBrains Mono" :height 170 :weight 'normal)
   (error (message "JetBrains Mono font not available, using default")))
+
+;; Apply Pip-Boy faces after init to ensure they override everything
+(defun pipboy-apply-faces ()
+  "Apply Pip-Boy green phosphor CRT faces."
+
+  ;; Core faces
+  (set-face-attribute 'default nil
+                      :foreground pipboy-green :background pipboy-bg)
+  (set-face-attribute 'cursor nil
+                      :background pipboy-bright)
+  (set-face-attribute 'region nil
+                      :background pipboy-region :foreground pipboy-bright)
+  (set-face-attribute 'highlight nil
+                      :background pipboy-region)
+  (set-face-attribute 'fringe nil
+                      :background pipboy-bg :foreground pipboy-dark)
+  (set-face-attribute 'vertical-border nil
+                      :foreground pipboy-dark)
+  (set-face-attribute 'minibuffer-prompt nil
+                      :foreground pipboy-bright :weight 'bold)
+  (set-face-attribute 'link nil
+                      :foreground pipboy-bright :underline t)
+  (set-face-attribute 'link-visited nil
+                      :foreground pipboy-medium :underline t)
+  (set-face-attribute 'shadow nil
+                      :foreground pipboy-dim)
+
+  ;; Line numbers
+  (set-face-attribute 'line-number nil
+                      :foreground pipboy-dark :background pipboy-bg)
+  (set-face-attribute 'line-number-current-line nil
+                      :foreground pipboy-bright :background pipboy-bg-light
+                      :weight 'bold)
+
+  ;; Mode line - Pip-Boy status bar
+  (set-face-attribute 'mode-line nil
+                      :background "#0f3d0a"
+                      :foreground pipboy-bright)
+  (set-face-attribute 'mode-line-inactive nil
+                      :background pipboy-bg-light
+                      :foreground pipboy-dim)
+  (set-face-attribute 'mode-line-buffer-id nil
+                      :foreground pipboy-bright :weight 'bold)
+
+  ;; Syntax highlighting - modern colorful on Pip-Boy CRT
+  (set-face-attribute 'font-lock-keyword-face nil
+                      :foreground pipboy-bright :weight 'bold)
+  (set-face-attribute 'font-lock-function-name-face nil
+                      :foreground pipboy-cyan)
+  (set-face-attribute 'font-lock-variable-name-face nil
+                      :foreground pipboy-blue)
+  (set-face-attribute 'font-lock-string-face nil
+                      :foreground pipboy-gold)
+  (set-face-attribute 'font-lock-comment-face nil
+                      :foreground pipboy-dim :slant 'italic)
+  (set-face-attribute 'font-lock-comment-delimiter-face nil
+                      :foreground pipboy-dim :slant 'italic)
+  (set-face-attribute 'font-lock-type-face nil
+                      :foreground pipboy-teal :weight 'bold)
+  (set-face-attribute 'font-lock-constant-face nil
+                      :foreground pipboy-orange)
+  (set-face-attribute 'font-lock-builtin-face nil
+                      :foreground pipboy-purple)
+  (set-face-attribute 'font-lock-preprocessor-face nil
+                      :foreground pipboy-purple)
+  (set-face-attribute 'font-lock-warning-face nil
+                      :foreground pipboy-amber :weight 'bold)
+  (set-face-attribute 'font-lock-doc-face nil
+                      :foreground pipboy-doc-green :slant 'italic)
+
+  ;; Search
+  (set-face-attribute 'isearch nil
+                      :background pipboy-bright :foreground pipboy-bg
+                      :weight 'bold)
+  (set-face-attribute 'lazy-highlight nil
+                      :background pipboy-dark :foreground pipboy-bright)
+  (set-face-attribute 'isearch-fail nil
+                      :background pipboy-red :foreground pipboy-bg)
+
+  ;; Paren matching
+  (set-face-attribute 'show-paren-match nil
+                      :background pipboy-dark :foreground pipboy-bright
+                      :weight 'bold)
+  (set-face-attribute 'show-paren-mismatch nil
+                      :background pipboy-red :foreground pipboy-bg)
+
+  ;; Flycheck / errors & warnings
+  (when (facep 'flycheck-error)
+    (set-face-attribute 'flycheck-error nil
+                        :underline `(:style wave :color ,pipboy-red))
+    (set-face-attribute 'flycheck-warning nil
+                        :underline `(:style wave :color ,pipboy-amber))
+    (set-face-attribute 'flycheck-info nil
+                        :underline `(:style wave :color ,pipboy-dim)))
+
+  ;; Completions
+  (when (facep 'completions-common-part)
+    (set-face-attribute 'completions-common-part nil
+                        :foreground pipboy-bright :weight 'bold)
+    (set-face-attribute 'completions-first-difference nil
+                        :foreground pipboy-amber))
+
+  ;; Markdown
+  (when (facep 'markdown-header-face-1)
+    (set-face-attribute 'markdown-header-face-1 nil
+                        :foreground pipboy-bright :weight 'bold :height 1.3)
+    (set-face-attribute 'markdown-header-face-2 nil
+                        :foreground pipboy-medium :weight 'bold :height 1.2)
+    (set-face-attribute 'markdown-header-face-3 nil
+                        :foreground pipboy-dim :weight 'bold :height 1.1))
+
+  ;; Magit
+  (when (facep 'magit-section-heading)
+    (set-face-attribute 'magit-section-heading nil
+                        :foreground pipboy-bright :weight 'bold)
+    (set-face-attribute 'magit-diff-added nil
+                        :foreground pipboy-bright :background "#0a1f0a")
+    (set-face-attribute 'magit-diff-removed nil
+                        :foreground pipboy-red :background "#1f0a0a")
+    (set-face-attribute 'magit-diff-added-highlight nil
+                        :foreground pipboy-bright :background "#0f2f0f")
+    (set-face-attribute 'magit-diff-removed-highlight nil
+                        :foreground pipboy-red :background "#2f0f0f"))
+
+  ;; LSP UI
+  (when (facep 'lsp-ui-doc-background)
+    (set-face-attribute 'lsp-ui-doc-background nil
+                        :background pipboy-bg-light))
+  (when (facep 'lsp-face-highlight-textual)
+    (set-face-attribute 'lsp-face-highlight-textual nil
+                        :background pipboy-region))
+  )
+
+(add-hook 'after-init-hook #'pipboy-apply-faces)
+;; Also apply to new frames
+(add-hook 'server-after-make-frame-hook #'pipboy-apply-faces)
+
 
 ;; Smart scroll function for M-w
 (defun smart-scroll-up ()
@@ -433,6 +606,23 @@
 (define-key my-keys-minor-mode-map (kbd "C-x C-f") 'projectile-find-file)
 (define-key my-keys-minor-mode-map (kbd "C-M-f") 'projectile-grep)
 (define-key my-keys-minor-mode-map (kbd "C-k") 'kill-whole-line)
+;; Window resize - smart split line movement
+(defun my/shrink-window-smart ()
+  "Move split line left (side-by-side) or up (stacked)."
+  (interactive)
+  (if (window-full-width-p)
+      (shrink-window 1)
+    (shrink-window-horizontally 1)))
+
+(defun my/enlarge-window-smart ()
+  "Move split line right (side-by-side) or down (stacked)."
+  (interactive)
+  (if (window-full-width-p)
+      (enlarge-window 1)
+    (enlarge-window-horizontally 1)))
+
+(define-key my-keys-minor-mode-map (kbd "C-,") 'my/shrink-window-smart)
+(define-key my-keys-minor-mode-map (kbd "C-.") 'my/enlarge-window-smart)
 
 ;; Magit
 (use-package magit
@@ -459,7 +649,7 @@
 (define-minor-mode my-keys-minor-mode
   "A minor mode so that my key settings override annoying major modes."
   :init-value t
-  :lighter " my-keys"
+  :lighter ""
   :keymap my-keys-minor-mode-map)
 
 (my-keys-minor-mode 1)
@@ -505,13 +695,8 @@
  '(tool-bar-mode nil))
 
 (custom-set-faces
- ;; custom-set-faces was added by Custom.
- ;; If you edit it by hand, you could mess it up, so be careful.
- ;; Your init file should contain only one such instance.
- ;; If there is more than one, they won't work right.
- '(markdown-header-face-1 ((t (:inherit font-lock-function-name-face :weight bold :height 1.3))))
- '(markdown-header-face-2 ((t (:inherit font-lock-variable-name-face :weight bold :height 1.2))))
- '(markdown-header-face-3 ((t (:inherit font-lock-keyword-face :weight bold :height 1.1)))))
+ ;; Pip-Boy theme handles faces via pipboy-apply-faces
+ )
 
 
 ;; Vterm - full terminal emulator
@@ -528,47 +713,11 @@
   ;; Also bind C-c C-e as alternative
   (define-key vterm-mode-map (kbd "C-c C-e") #'vterm-send-escape))
 
-;; Eat - Emulate A Terminal (alternative to vterm, may have less flicker)
-(use-package eat
-  :commands eat
-  :config
-  (setq eat-kill-buffer-on-exit t)
-  ;; Enable shell integration for better experience
-  (add-hook 'eshell-load-hook #'eat-eshell-mode)
-  ;; ESC handling
-  (define-key eat-semi-char-mode-map (kbd "C-g") #'eat-self-input)
-  (define-key eat-semi-char-mode-map (kbd "C-c C-e") #'eat-self-input))
-
-;; inheritenv - required dependency for claude-code.el
-(use-package inheritenv
-  :straight (:host github :repo "purcell/inheritenv"))
-
-;; Claude Code integration
-(use-package claude-code
-  :straight (:host github :repo "stevemolitor/claude-code.el")
-  :demand t
-  :config
-  (setq claude-code-terminal-backend 'eat)  ;; Use eat instead of vterm
-  (claude-code-mode)
-
-  (defun my/claude-code-start-dev ()
-    "Start Claude Code with CLAUDE.dev.md"
-    (interactive)
-    (let ((claude-code-program-switches '("--system-prompt-file" "./CLAUDE.dev.md")))
-      (claude-code)))
-  :bind-keymap ("C-c l" . claude-code-command-map))
-;; Key bindings (prefix C-c l):
-;;   C-c l c - Start Claude
-;;   C-c l s - Send command via minibuffer
-;;   C-c l r - Send region/buffer
-;;   C-c l e - Fix error at point
-;;   C-c l t - Toggle Claude window
-;;   C-c l b - Switch to Claude buffer
-;;   C-c l m - Transient menu
 
 ;; Inline ghost text suggestions (Cursor-style, via Qwen FIM)
 (use-package inline-suggestion
   :straight nil
+  :diminish
   :load-path "~/.emacs.d/straight/repos/emacs_setup/inline-suggestion"
   :init
   ;; Clone/update from GitHub via straight (the whole repo)
