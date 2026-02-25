@@ -176,7 +176,9 @@
   :config
   (projectile-mode +1)
   ;; Include git-ignored files (like .env) in projectile-find-file
-  (setq projectile-git-command "git ls-files -zco --exclude-standard && git ls-files -zcoi --exclude-standard | grep -zv node_modules")
+  (setq projectile-git-command "git ls-files -zco --exclude-standard && git ls-files -zcoi --exclude-standard | grep -zv -e node_modules -e target")
+  (setq projectile-globally-ignored-directories
+        (append '("target" "node_modules") projectile-globally-ignored-directories))
   :bind-keymap
   ("C-c p" . projectile-command-map))
 
@@ -373,6 +375,10 @@
 (global-set-key (kbd "<C-backspace>") 'backward-kill-word)
 ;; Try M-DEL as an alternative (Meta/Alt + backspace)
 (define-key my-keys-minor-mode-map (kbd "M-DEL") 'backward-kill-word)
+;; In terminal, Ctrl+Backspace sends C-h (the help prefix), so rebind it.
+;; Help remains accessible via F1.
+(unless (display-graphic-p)
+  (define-key my-keys-minor-mode-map (kbd "C-h") 'backward-kill-word))
 (define-key my-keys-minor-mode-map (kbd "M-9") 'beginning-of-buffer)
 (define-key my-keys-minor-mode-map (kbd "M-0") 'end-of-buffer)
 (define-key my-keys-minor-mode-map (kbd "C-M-s") 'next-buffer)
@@ -519,3 +525,14 @@
 ;;   C-c l t - Toggle Claude window
 ;;   C-c l b - Switch to Claude buffer
 ;;   C-c l m - Transient menu
+
+;; Inline ghost text suggestions (Cursor-style, via Qwen FIM)
+(use-package inline-suggestion
+  :straight nil
+  :load-path "~/.emacs.d/straight/repos/emacs_setup/inline-suggestion"
+  :init
+  ;; Clone/update from GitHub via straight (the whole repo)
+  (straight-use-package
+   '(emacs_setup :host github :repo "hn12404988/emacs_setup" :no-build t))
+  :hook ((prog-mode . inline-suggestion-mode)
+         (text-mode . inline-suggestion-mode)))
