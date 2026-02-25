@@ -219,9 +219,7 @@
   :config
   (setq lsp-ui-doc-enable t)
   (setq lsp-ui-doc-position 'at-point)
-  (setq lsp-ui-sideline-enable t)
-  (setq lsp-ui-sideline-show-hover nil)
-  (setq lsp-ui-sideline-show-diagnostics t))
+  (setq lsp-ui-sideline-enable nil))
 
 ;; TOML support for Cargo.toml files
 (use-package toml-mode
@@ -257,16 +255,16 @@
 (use-package yasnippet-snippets
   :after yasnippet)
 
-;; Company mode (completion framework, works great with LSP)
-(use-package company
-  :hook (prog-mode . company-mode)
-  :config
-  (setq company-idle-delay 0.2)
-  (setq company-minimum-prefix-length 1)
-  (setq company-selection-wrap-around t)
-  :bind (:map company-active-map
-              ("C-w" . company-select-previous)
-              ("C-s" . company-select-next)))
+;; Company mode - disabled in favor of inline-suggestion
+;; (use-package company
+;;   :hook (prog-mode . company-mode)
+;;   :config
+;;   (setq company-idle-delay 0.2)
+;;   (setq company-minimum-prefix-length 1)
+;;   (setq company-selection-wrap-around t)
+;;   :bind (:map company-active-map
+;;               ("C-w" . company-select-previous)
+;;               ("C-s" . company-select-next)))
 
 ;; Color theme
 (add-to-list 'default-frame-alist '(foreground-color . "#E0DFDB"))
