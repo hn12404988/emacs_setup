@@ -176,7 +176,7 @@
   :config
   (projectile-mode +1)
   ;; Include git-ignored files (like .env) in projectile-find-file
-  (setq projectile-git-command "git ls-files -zco --exclude-standard && git ls-files -zcoi --exclude-standard | grep -zv -e node_modules -e target")
+  (setq projectile-git-command "git ls-files -zco --exclude-standard && git ls-files -zcoi --exclude-standard -- ':!target' ':!node_modules'")
   (setq projectile-globally-ignored-directories
         (append '("target" "node_modules") projectile-globally-ignored-directories))
   :bind-keymap

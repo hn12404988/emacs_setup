@@ -198,8 +198,15 @@ Snapshots buffer state to detect staleness."
                                  (error-message-string err))))
                    (let ((buf (current-buffer)))
                      (when (buffer-live-p buf)
+                       (let ((proc (get-buffer-process buf)))
+                         (when (and proc (process-live-p proc))
+                           (set-process-query-on-exit-flag proc nil)
+                           (delete-process proc)))
                        (kill-buffer buf)))))
-               nil t t))))))
+               nil t t))
+        ;; Prevent "active connection" prompt on Emacs exit
+        (when-let ((proc (get-buffer-process inline-suggestion--http-buffer)))
+          (set-process-query-on-exit-flag proc nil))))))
 
 ;; ============================================================================
 ;; Overlay display
@@ -249,6 +256,7 @@ Snapshots buffer state to detect staleness."
              (buffer-live-p inline-suggestion--http-buffer))
     (let ((proc (get-buffer-process inline-suggestion--http-buffer)))
       (when (and proc (process-live-p proc))
+        (set-process-query-on-exit-flag proc nil)
         (delete-process proc)))
     (kill-buffer inline-suggestion--http-buffer))
   (setq inline-suggestion--http-buffer nil))
@@ -372,6 +380,21 @@ Snapshots buffer state to detect staleness."
                     unread-command-events)))))
 
 ;; ============================================================================
+;; Global cleanup
+;; ============================================================================
+
+(defun inline-suggestion--kill-all-connections ()
+  "Kill all lingering inline-suggestion HTTP buffers and connections."
+  (dolist (buf (buffer-list))
+    (when (and (buffer-live-p buf)
+               (string-match-p "\\` \\*http.*dashscope" (buffer-name buf)))
+      (let ((proc (get-buffer-process buf)))
+        (when (and proc (process-live-p proc))
+          (set-process-query-on-exit-flag proc nil)
+          (delete-process proc)))
+      (kill-buffer buf))))
+
+;; ============================================================================
 ;; Minor mode
 ;; ============================================================================
 
@@ -382,7 +405,8 @@ Snapshots buffer state to detect staleness."
   :group 'inline-suggestion
   (if inline-suggestion-mode
       (progn
-        (add-hook 'post-command-hook #'inline-suggestion--post-command nil t))
+        (add-hook 'post-command-hook #'inline-suggestion--post-command nil t)
+        (add-hook 'kill-emacs-hook #'inline-suggestion--kill-all-connections))
     ;; Teardown
     (remove-hook 'post-command-hook #'inline-suggestion--post-command t)
     (inline-suggestion--cancel-timer)
