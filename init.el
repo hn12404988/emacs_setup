@@ -239,6 +239,21 @@
   (setq markdown-command "pandoc")
   :hook (markdown-mode . visual-line-mode))
 
+(defun my/glow-render ()
+  "Render current markdown file with glow in a buffer with colors."
+  (interactive)
+  (let* ((file (buffer-file-name))
+         (buf-name "*glow*"))
+    (when (get-buffer buf-name)
+      (kill-buffer buf-name))
+    (let ((buf (get-buffer-create buf-name)))
+      (with-current-buffer buf
+        (shell-command (format "CLICOLOR_FORCE=1 glow -w 0 %s" (shell-quote-argument file)) buf)
+        (ansi-color-apply-on-region (point-min) (point-max))
+        (view-mode 1)
+        (local-set-key (kbd "q") 'kill-buffer-and-window))
+      (pop-to-buffer buf))))
+
 
 (setq-default tab-width 4 indent-tabs-mode t)
 
