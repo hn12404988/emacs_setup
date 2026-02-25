@@ -175,6 +175,8 @@
 (use-package projectile
   :config
   (projectile-mode +1)
+  ;; Include git-ignored files (like .env) in projectile-find-file
+  (setq projectile-git-command "git ls-files -zco --exclude-standard && git ls-files -zcoi --exclude-standard | grep -zv node_modules")
   :bind-keymap
   ("C-c p" . projectile-command-map))
 
