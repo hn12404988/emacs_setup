@@ -91,6 +91,10 @@ Falls back to the environment variable DASHSCOPE_API_KEY if nil."
   "Saved posn-at-point before overlay display.
 Works around Emacs reporting wrong cursor position with after-string overlays.")
 
+(defvar-local inline-suggestion--request-in-flight nil
+  "Non-nil while an HTTP request is pending.
+Prevents sending another request until the current one completes.")
+
 (defvar inline-suggestion--api-key-warned nil
   "Non-nil if we already warned about missing API key.")
 
@@ -144,6 +148,16 @@ Returns a string with FIM tokens wrapping prefix and suffix."
 ;; HTTP request
 ;; ============================================================================
 
+(defun inline-suggestion--escape-non-ascii (str)
+  "Replace non-ASCII characters in STR with \\\\uXXXX JSON escapes.
+This ensures the HTTP request body is ASCII-only, avoiding
+Emacs Bug#23750 where `url-http-create-request' errors on
+multibyte text when concatenating headers with the body."
+  (replace-regexp-in-string
+   "[^[:ascii:]]"
+   (lambda (ch) (format "\\u%04x" (string-to-char ch)))
+   str nil t))
+
 (defun inline-suggestion--request-body (fim-prompt)
   "Build the JSON request body for FIM-PROMPT.
 Uses the /v1/completions endpoint format (not chat)."
@@ -152,7 +166,9 @@ Uses the /v1/completions endpoint format (not chat)."
                 ("max_tokens" . ,inline-suggestion-max-tokens)
                 ("temperature" . 0)
                 ("stop" . ["<|endoftext|>" "<|fim_pad|>"]))))
-    (encode-coding-string (json-encode body) 'utf-8)))
+    (encode-coding-string
+     (inline-suggestion--escape-non-ascii (json-encode body))
+     'utf-8)))
 
 (defun inline-suggestion--fetch (callback)
   "Send async FIM request.  Call CALLBACK with suggestion text on success.
@@ -170,6 +186,7 @@ Snapshots buffer state to detect staleness."
              (url-request-data (inline-suggestion--request-body fim-prompt))
              (url-show-status nil)
              (api-url (concat inline-suggestion-api-url "/completions")))
+        (setq inline-suggestion--request-in-flight t)
         (setq inline-suggestion--http-buffer
               (url-retrieve
                api-url
@@ -180,7 +197,14 @@ Snapshots buffer state to detect staleness."
                            ;; Check for HTTP errors
                            (goto-char (point-min))
                            (unless (re-search-forward "^HTTP/[0-9.]+ 200" nil t)
-                             (error "Non-200 response"))
+                             (goto-char (point-min))
+                             (let ((status-line (buffer-substring-no-properties
+                                                 (point) (line-end-position)))
+                                   (body ""))
+                               (when (re-search-forward "\r?\n\r?\n" nil t)
+                                 (setq body (buffer-substring-no-properties
+                                             (point) (min (+ (point) 500) (point-max)))))
+                               (error "Non-200: %s | %s" status-line body)))
                            ;; Jump to response body.
                            ;; url-http-end-of-headers is set by url-http.el
                            ;; and points right past the header/body blank line.
@@ -206,6 +230,10 @@ Snapshots buffer state to detect staleness."
                        (error
                         (message "inline-suggestion: request error: %s"
                                  (error-message-string err))))
+                   ;; Always clear in-flight flag when done
+                   (when (buffer-live-p snap-buffer)
+                     (with-current-buffer snap-buffer
+                       (setq inline-suggestion--request-in-flight nil)))
                    (let ((buf (current-buffer)))
                      (when (buffer-live-p buf)
                        (let ((proc (get-buffer-process buf)))
@@ -297,7 +325,8 @@ trailing text so existing content remains visible after the ghost."
         (set-process-query-on-exit-flag proc nil)
         (delete-process proc)))
     (kill-buffer inline-suggestion--http-buffer))
-  (setq inline-suggestion--http-buffer nil))
+  (setq inline-suggestion--http-buffer nil)
+  (setq inline-suggestion--request-in-flight nil))
 
 (defun inline-suggestion--cancel-timer ()
   "Cancel the pending idle timer."
@@ -310,10 +339,21 @@ trailing text so existing content remains visible after the ghost."
 ;; ============================================================================
 
 (defun inline-suggestion--trigger ()
-  "Snapshot buffer state and fire async FIM request."
+  "Snapshot buffer state and fire async FIM request.
+Skips if a request is already in flight to avoid piling up
+requests on slow connections."
   (setq inline-suggestion--timer nil)
-  (inline-suggestion--cancel-request)
-  (inline-suggestion--fetch #'inline-suggestion--show))
+  (if inline-suggestion--request-in-flight
+      ;; Request pending — reschedule so we try again after it finishes
+      (setq inline-suggestion--timer
+            (run-with-idle-timer 0.5 nil
+                                 (let ((buf (current-buffer)))
+                                   (lambda ()
+                                     (when (buffer-live-p buf)
+                                       (with-current-buffer buf
+                                         (inline-suggestion--trigger)))))))
+    (inline-suggestion--cancel-request)
+    (inline-suggestion--fetch #'inline-suggestion--show)))
 
 (defun inline-suggestion--schedule ()
   "Cancel previous timer/request and schedule a new idle timer."
