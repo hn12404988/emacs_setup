@@ -1,7 +1,7 @@
 ;;; inline-suggestion.el --- Cursor-style inline ghost text completions via Qwen FIM -*- lexical-binding: t -*-
 
 ;; Author: Willy
-;; Version: 0.1.0
+;; Version: 0.2.0
 ;; Package-Requires: ((emacs "26.1"))
 ;; Keywords: completion, convenience
 ;; URL: https://github.com/willy/inline-suggestion
@@ -86,6 +86,10 @@ Falls back to the environment variable DASHSCOPE_API_KEY if nil."
 
 (defvar-local inline-suggestion--suggestion-text nil
   "The current suggestion text.")
+
+(defvar-local inline-suggestion--real-posn nil
+  "Saved posn-at-point before overlay display.
+Works around Emacs reporting wrong cursor position with after-string overlays.")
 
 (defvar inline-suggestion--api-key-warned nil
   "Non-nil if we already warned about missing API key.")
@@ -177,9 +181,16 @@ Snapshots buffer state to detect staleness."
                            (goto-char (point-min))
                            (unless (re-search-forward "^HTTP/[0-9.]+ 200" nil t)
                              (error "Non-200 response"))
-                           ;; Parse JSON body (skip past headers)
-                           (goto-char (point-min))
-                           (re-search-forward "\n\n" nil t)
+                           ;; Jump to response body.
+                           ;; url-http-end-of-headers is set by url-http.el
+                           ;; and points right past the header/body blank line.
+                           (if (and (boundp 'url-http-end-of-headers)
+                                    url-http-end-of-headers)
+                               (goto-char url-http-end-of-headers)
+                             ;; Fallback: search for blank line (handles \r\n and \n)
+                             (goto-char (point-min))
+                             (unless (re-search-forward "\r?\n\r?\n" nil t)
+                               (error "Could not find HTTP response body")))
                            (let* ((json-object-type 'alist)
                                   (json-array-type 'vector)
                                   (resp (json-read))
@@ -187,7 +198,6 @@ Snapshots buffer state to detect staleness."
                                   (text (and (> (length choices) 0)
                                              (alist-get 'text (aref choices 0)))))
                              (when (and text (not (string-empty-p (string-trim text))))
-                               ;; Stale response check
                                (when (buffer-live-p snap-buffer)
                                  (with-current-buffer snap-buffer
                                    (when (and (= snap-point (point))
@@ -209,33 +219,60 @@ Snapshots buffer state to detect staleness."
           (set-process-query-on-exit-flag proc nil))))))
 
 ;; ============================================================================
-;; Overlay display
+;; Overlay display  (technique adapted from copilot.el)
 ;; ============================================================================
 
-(defun inline-suggestion--make-display-text (text)
-  "Propertize TEXT as ghost text with cursor anchored at the start."
-  (let ((display-text (propertize text 'face 'shadow)))
-    (when (> (length display-text) 0)
-      (put-text-property 0 1 'cursor t display-text))
-    display-text))
+(defun inline-suggestion--posn-advice (&rest args)
+  "Return saved cursor position when inline-suggestion overlay is active.
+Works around Emacs reporting incorrect pixel coordinates
+when an `after-string' overlay property is present."
+  (when inline-suggestion-mode
+    (let ((pos (or (car-safe args) (point))))
+      (when (and inline-suggestion--real-posn
+                 (eq pos (car inline-suggestion--real-posn)))
+        (cdr inline-suggestion--real-posn)))))
 
 (defun inline-suggestion--show (text)
-  "Display TEXT as ghost text overlay at point."
+  "Display TEXT as ghost text overlay at point.
+The overlay spans from point to end-of-line.  At EOL the overlay
+is hidden via `display' and the ghost text is rendered as
+`after-string' with a `cursor' text property that keeps the real
+cursor anchored.  Mid-line, `display' replaces the first covered
+character and `after-string' holds the rest plus the original
+trailing text so existing content remains visible after the ghost."
   (inline-suggestion--clear)
   (when (and text (not (string-empty-p text)))
     (setq inline-suggestion--suggestion-text text)
-    (let ((ov (make-overlay (point) (point) nil t t)))
-      (overlay-put ov 'after-string (inline-suggestion--make-display-text text))
+    (let* ((ov (make-overlay (point) (line-end-position) nil nil t))
+           (tail (buffer-substring-no-properties (point) (line-end-position)))
+           ;; Ghost text (shadow face) followed by the existing tail (default face)
+           (p-completion (concat (propertize text 'face 'shadow) tail)))
+      (if (eolp)
+          ;; ---- cursor at end of line ----
+          (progn
+            ;; Temporarily set empty after-string so posn-at-point sees no
+            ;; ghost text yet and returns the true pixel position.
+            (overlay-put ov 'after-string "")
+            (setq inline-suggestion--real-posn
+                  (cons (point) (posn-at-point)))
+            ;; Anchor cursor at position 0 of the after-string
+            (put-text-property 0 1 'cursor t p-completion)
+            (overlay-put ov 'display "")
+            (overlay-put ov 'after-string p-completion))
+        ;; ---- cursor mid-line ----
+        ;; The overlay covers existing text from point to EOL.
+        ;; `display' replaces the covered region's first char visually;
+        ;; `after-string' appends the remainder of the completion + tail.
+        (overlay-put ov 'display (substring p-completion 0 1))
+        (overlay-put ov 'after-string (substring p-completion 1)))
       (overlay-put ov 'inline-suggestion t)
-      (overlay-put ov 'priority 1000)
+      (overlay-put ov 'priority 100)
       (setq inline-suggestion--overlay ov))
     ;; Push the active keymap
     (unless inline-suggestion--active-keymap
       (setq inline-suggestion--active-keymap t)
       (set-transient-map inline-suggestion--keymap
-                         ;; Keep the map active as long as overlay is visible
                          (lambda () inline-suggestion--active-keymap)
-                         ;; On exit: dismiss and replay the key
                          #'inline-suggestion-dismiss-and-replay))))
 
 (defun inline-suggestion--clear ()
@@ -244,7 +281,8 @@ Snapshots buffer state to detect staleness."
     (delete-overlay inline-suggestion--overlay)
     (setq inline-suggestion--overlay nil))
   (setq inline-suggestion--suggestion-text nil)
-  (setq inline-suggestion--active-keymap nil))
+  (setq inline-suggestion--active-keymap nil)
+  (setq inline-suggestion--real-posn nil))
 
 ;; ============================================================================
 ;; Request management
@@ -351,18 +389,9 @@ Snapshots buffer state to detect staleness."
            (remaining (substring text word-end)))
       (inline-suggestion--clear)
       (insert word)
-      ;; If there's remaining text, re-show it
+      ;; If there's remaining text, re-show it as a new overlay
       (when (not (string-empty-p (string-trim remaining)))
-        (setq inline-suggestion--suggestion-text remaining)
-        (let ((ov (make-overlay (point) (point) nil t t)))
-          (overlay-put ov 'after-string (inline-suggestion--make-display-text remaining))
-          (overlay-put ov 'inline-suggestion t)
-          (overlay-put ov 'priority 1000)
-          (setq inline-suggestion--overlay ov))
-        (setq inline-suggestion--active-keymap t)
-        (set-transient-map inline-suggestion--keymap
-                           (lambda () inline-suggestion--active-keymap)
-                           #'inline-suggestion-dismiss-and-replay)))))
+        (inline-suggestion--show remaining)))))
 
 (defun inline-suggestion-dismiss ()
   "Dismiss the current suggestion."
@@ -406,12 +435,14 @@ Snapshots buffer state to detect staleness."
   (if inline-suggestion-mode
       (progn
         (add-hook 'post-command-hook #'inline-suggestion--post-command nil t)
-        (add-hook 'kill-emacs-hook #'inline-suggestion--kill-all-connections))
+        (add-hook 'kill-emacs-hook #'inline-suggestion--kill-all-connections)
+        (advice-add 'posn-at-point :before-until #'inline-suggestion--posn-advice))
     ;; Teardown
     (remove-hook 'post-command-hook #'inline-suggestion--post-command t)
     (inline-suggestion--cancel-timer)
     (inline-suggestion--cancel-request)
-    (inline-suggestion--clear)))
+    (inline-suggestion--clear)
+    (advice-remove 'posn-at-point #'inline-suggestion--posn-advice)))
 
 (provide 'inline-suggestion)
 
