@@ -1,4 +1,4 @@
-;;; inline-suggestion.el --- Cursor-style inline ghost text completions via Qwen FIM -*- lexical-binding: t -*-
+;;; inline-suggestion.el --- Cursor-style inline ghost text completions via Qwen prefix completion -*- lexical-binding: t -*-
 
 ;; Author: Willy
 ;; Version: 0.2.0
@@ -9,7 +9,7 @@
 ;;; Commentary:
 
 ;; Provides inline ghost text code suggestions using the Qwen API's
-;; Fill-in-the-Middle (FIM) capability.  Suggestions appear as
+;; prefix completion (partial mode) capability.  Suggestions appear as
 ;; translucent overlay text at the cursor after a short idle delay.
 ;; Press TAB to accept, or just keep typing to dismiss.
 ;;
@@ -38,12 +38,12 @@ Falls back to the environment variable DASHSCOPE_API_KEY if nil."
   :group 'inline-suggestion)
 
 (defcustom inline-suggestion-api-url
-  "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
   "Base URL for the OpenAI-compatible API endpoint."
   :type 'string
   :group 'inline-suggestion)
 
-(defcustom inline-suggestion-model "qwen2.5-coder-7b-instruct"
+(defcustom inline-suggestion-model "qwen3.5-flash"
   "Model name to use for completions."
   :type 'string
   :group 'inline-suggestion)
@@ -53,7 +53,7 @@ Falls back to the environment variable DASHSCOPE_API_KEY if nil."
   :type 'number
   :group 'inline-suggestion)
 
-(defcustom inline-suggestion-max-tokens 256
+(defcustom inline-suggestion-max-tokens 100
   "Maximum number of tokens to generate."
   :type 'integer
   :group 'inline-suggestion)
@@ -128,21 +128,15 @@ Returns nil and logs a warning if neither is set."
         nil)))
 
 ;; ============================================================================
-;; FIM prompt construction
+;; Prefix construction
 ;; ============================================================================
 
-(defun inline-suggestion--build-fim-prompt ()
-  "Build the FIM prompt from buffer context around point.
-Returns a string with FIM tokens wrapping prefix and suffix."
-  (let* ((prefix-start (save-excursion
-                          (forward-line (- inline-suggestion-max-prefix-lines))
-                          (line-beginning-position)))
-         (prefix (buffer-substring-no-properties prefix-start (point)))
-         (suffix-end (save-excursion
-                       (forward-line inline-suggestion-max-suffix-lines)
-                       (line-end-position)))
-         (suffix (buffer-substring-no-properties (point) suffix-end)))
-    (concat "<|fim_prefix|>" prefix "<|fim_suffix|>" suffix "<|fim_middle|>")))
+(defun inline-suggestion--build-prefix ()
+  "Build the prefix string from buffer context before point."
+  (let ((prefix-start (save-excursion
+                         (forward-line (- inline-suggestion-max-prefix-lines))
+                         (line-beginning-position))))
+    (buffer-substring-no-properties prefix-start (point))))
 
 ;; ============================================================================
 ;; HTTP request
@@ -158,14 +152,19 @@ multibyte text when concatenating headers with the body."
    (lambda (ch) (format "\\u%04x" (string-to-char ch)))
    str nil t))
 
-(defun inline-suggestion--request-body (fim-prompt)
-  "Build the JSON request body for FIM-PROMPT.
-Uses the /v1/completions endpoint format (not chat)."
+(defun inline-suggestion--request-body (prefix)
+  "Build the JSON request body for PREFIX continuation.
+Uses the /v1/chat/completions endpoint with partial mode."
   (let ((body `(("model" . ,inline-suggestion-model)
-                ("prompt" . ,fim-prompt)
+                ("messages" . ,(vector
+                                `(("role" . "user")
+                                  ("content" . "Continue the code. Only output code, no explanations or markdown."))
+                                `(("role" . "assistant")
+                                  ("content" . ,prefix)
+                                  ("partial" . t))))
                 ("max_tokens" . ,inline-suggestion-max-tokens)
                 ("temperature" . 0)
-                ("stop" . ["<|endoftext|>" "<|fim_pad|>"]))))
+                ("enable_thinking" . :json-false))))
     (encode-coding-string
      (inline-suggestion--escape-non-ascii (json-encode body))
      'utf-8)))
@@ -178,14 +177,14 @@ Snapshots buffer state to detect staleness."
       (let* ((snap-point (point))
              (snap-tick (buffer-chars-modified-tick))
              (snap-buffer (current-buffer))
-             (fim-prompt (inline-suggestion--build-fim-prompt))
+             (prefix (inline-suggestion--build-prefix))
              (url-request-method "POST")
              (url-request-extra-headers
               `(("Content-Type" . "application/json")
                 ("Authorization" . ,(concat "Bearer " api-key))))
-             (url-request-data (inline-suggestion--request-body fim-prompt))
+             (url-request-data (inline-suggestion--request-body prefix))
              (url-show-status nil)
-             (api-url (concat inline-suggestion-api-url "/completions")))
+             (api-url (concat inline-suggestion-api-url "/chat/completions")))
         (setq inline-suggestion--request-in-flight t)
         (setq inline-suggestion--http-buffer
               (url-retrieve
@@ -219,8 +218,9 @@ Snapshots buffer state to detect staleness."
                                   (json-array-type 'vector)
                                   (resp (json-read))
                                   (choices (alist-get 'choices resp))
-                                  (text (and (> (length choices) 0)
-                                             (alist-get 'text (aref choices 0)))))
+                                  (msg (and (> (length choices) 0)
+                                            (alist-get 'message (aref choices 0))))
+                                  (text (and msg (alist-get 'content msg))))
                              (when (and text (not (string-empty-p (string-trim text))))
                                (when (buffer-live-p snap-buffer)
                                  (with-current-buffer snap-buffer
