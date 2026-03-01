@@ -714,7 +714,7 @@
   (define-key vterm-mode-map (kbd "C-c C-e") #'vterm-send-escape))
 
 
-;; Inline ghost text suggestions (Cursor-style, via Qwen FIM)
+;; Inline ghost text suggestions (Cursor-style, via local llama.cpp FIM)
 (use-package inline-suggestion
   :straight nil
   :diminish

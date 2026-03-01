@@ -1,4 +1,4 @@
-;;; inline-suggestion.el --- Cursor-style inline ghost text completions via Qwen prefix completion -*- lexical-binding: t -*-
+;;; inline-suggestion.el --- Cursor-style inline ghost text completions via local llama.cpp FIM -*- lexical-binding: t -*-
 
 ;; Author: Willy
 ;; Version: 0.2.0
@@ -8,12 +8,15 @@
 
 ;;; Commentary:
 
-;; Provides inline ghost text code suggestions using the Qwen API's
-;; prefix completion (partial mode) capability.  Suggestions appear as
+;; Provides inline ghost text code suggestions using a local llama.cpp
+;; server with fill-in-middle (FIM) completion.  Suggestions appear as
 ;; translucent overlay text at the cursor after a short idle delay.
 ;; Press TAB to accept, or just keep typing to dismiss.
 ;;
-;; No external dependencies — uses built-in `url.el' and `json.el'.
+;; Requires a running llama.cpp server with a FIM-capable model:
+;;   llama-server -m <model>.gguf -ngl 99 --port 8080
+;;
+;; No external Emacs dependencies — uses built-in `url.el' and `json.el'.
 
 ;;; Code:
 
@@ -26,29 +29,16 @@
 ;; ============================================================================
 
 (defgroup inline-suggestion nil
-  "Inline ghost text completions via Qwen FIM."
+  "Inline ghost text completions via local llama.cpp FIM."
   :group 'completion
   :prefix "inline-suggestion-")
 
-(defcustom inline-suggestion-api-key nil
-  "API key for Qwen/DashScope.
-Falls back to the environment variable DASHSCOPE_API_KEY if nil."
-  :type '(choice (const :tag "Use $DASHSCOPE_API_KEY" nil)
-                 (string :tag "API key"))
-  :group 'inline-suggestion)
-
-(defcustom inline-suggestion-api-url
-  "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-  "Base URL for the OpenAI-compatible API endpoint."
+(defcustom inline-suggestion-server-url "http://localhost:8080"
+  "Base URL for the llama.cpp server."
   :type 'string
   :group 'inline-suggestion)
 
-(defcustom inline-suggestion-model "qwen3.5-flash"
-  "Model name to use for completions."
-  :type 'string
-  :group 'inline-suggestion)
-
-(defcustom inline-suggestion-idle-delay 0.1
+(defcustom inline-suggestion-idle-delay 0.05
   "Seconds of idle time before requesting a suggestion."
   :type 'number
   :group 'inline-suggestion)
@@ -95,9 +85,6 @@ Works around Emacs reporting wrong cursor position with after-string overlays.")
   "Non-nil while an HTTP request is pending.
 Prevents sending another request until the current one completes.")
 
-(defvar inline-suggestion--api-key-warned nil
-  "Non-nil if we already warned about missing API key.")
-
 ;; ============================================================================
 ;; Keymap (active only while suggestion is visible)
 ;; ============================================================================
@@ -114,21 +101,7 @@ Prevents sending another request until the current one completes.")
   "Keymap active while a suggestion overlay is visible.")
 
 ;; ============================================================================
-;; API key resolution
-;; ============================================================================
-
-(defun inline-suggestion--api-key ()
-  "Return the API key, from `inline-suggestion-api-key' or $DASHSCOPE_API_KEY.
-Returns nil and logs a warning if neither is set."
-  (or inline-suggestion-api-key
-      (getenv "DASHSCOPE_API_KEY")
-      (unless inline-suggestion--api-key-warned
-        (setq inline-suggestion--api-key-warned t)
-        (message "inline-suggestion: No API key. Set `inline-suggestion-api-key' or $DASHSCOPE_API_KEY.")
-        nil)))
-
-;; ============================================================================
-;; Prefix construction
+;; Context construction
 ;; ============================================================================
 
 (defun inline-suggestion--build-prefix ()
@@ -137,6 +110,13 @@ Returns nil and logs a warning if neither is set."
                          (forward-line (- inline-suggestion-max-prefix-lines))
                          (line-beginning-position))))
     (buffer-substring-no-properties prefix-start (point))))
+
+(defun inline-suggestion--build-suffix ()
+  "Build the suffix string from buffer context after point."
+  (let ((suffix-end (save-excursion
+                      (forward-line inline-suggestion-max-suffix-lines)
+                      (line-end-position))))
+    (buffer-substring-no-properties (point) suffix-end)))
 
 ;; ============================================================================
 ;; HTTP request
@@ -152,19 +132,13 @@ multibyte text when concatenating headers with the body."
    (lambda (ch) (format "\\u%04x" (string-to-char ch)))
    str nil t))
 
-(defun inline-suggestion--request-body (prefix)
-  "Build the JSON request body for PREFIX continuation.
-Uses the /v1/chat/completions endpoint with partial mode."
-  (let ((body `(("model" . ,inline-suggestion-model)
-                ("messages" . ,(vector
-                                `(("role" . "user")
-                                  ("content" . "Continue the code. Only output code, no explanations or markdown."))
-                                `(("role" . "assistant")
-                                  ("content" . ,prefix)
-                                  ("partial" . t))))
-                ("max_tokens" . ,inline-suggestion-max-tokens)
+(defun inline-suggestion--request-body (prefix suffix)
+  "Build the JSON request body for /infill with PREFIX and SUFFIX."
+  (let ((body `(("input_prefix" . ,prefix)
+                ("input_suffix" . ,suffix)
+                ("n_predict" . ,inline-suggestion-max-tokens)
                 ("temperature" . 0)
-                ("enable_thinking" . :json-false))))
+                ("stream" . :json-false))))
     (encode-coding-string
      (inline-suggestion--escape-non-ascii (json-encode body))
      'utf-8)))
@@ -172,79 +146,71 @@ Uses the /v1/chat/completions endpoint with partial mode."
 (defun inline-suggestion--fetch (callback)
   "Send async FIM request.  Call CALLBACK with suggestion text on success.
 Snapshots buffer state to detect staleness."
-  (let ((api-key (inline-suggestion--api-key)))
-    (when api-key
-      (let* ((snap-point (point))
-             (snap-tick (buffer-chars-modified-tick))
-             (snap-buffer (current-buffer))
-             (prefix (inline-suggestion--build-prefix))
-             (url-request-method "POST")
-             (url-request-extra-headers
-              `(("Content-Type" . "application/json")
-                ("Authorization" . ,(concat "Bearer " api-key))))
-             (url-request-data (inline-suggestion--request-body prefix))
-             (url-show-status nil)
-             (api-url (concat inline-suggestion-api-url "/chat/completions")))
-        (setq inline-suggestion--request-in-flight t)
-        (setq inline-suggestion--http-buffer
-              (url-retrieve
-               api-url
-               (lambda (_status)
-                 (unwind-protect
-                     (condition-case err
-                         (progn
-                           ;; Check for HTTP errors
-                           (goto-char (point-min))
-                           (unless (re-search-forward "^HTTP/[0-9.]+ 200" nil t)
-                             (goto-char (point-min))
-                             (let ((status-line (buffer-substring-no-properties
-                                                 (point) (line-end-position)))
-                                   (body ""))
-                               (when (re-search-forward "\r?\n\r?\n" nil t)
-                                 (setq body (buffer-substring-no-properties
-                                             (point) (min (+ (point) 500) (point-max)))))
-                               (error "Non-200: %s | %s" status-line body)))
-                           ;; Jump to response body.
-                           ;; url-http-end-of-headers is set by url-http.el
-                           ;; and points right past the header/body blank line.
-                           (if (and (boundp 'url-http-end-of-headers)
-                                    url-http-end-of-headers)
-                               (goto-char url-http-end-of-headers)
-                             ;; Fallback: search for blank line (handles \r\n and \n)
-                             (goto-char (point-min))
-                             (unless (re-search-forward "\r?\n\r?\n" nil t)
-                               (error "Could not find HTTP response body")))
-                           (let* ((json-object-type 'alist)
-                                  (json-array-type 'vector)
-                                  (resp (json-read))
-                                  (choices (alist-get 'choices resp))
-                                  (msg (and (> (length choices) 0)
-                                            (alist-get 'message (aref choices 0))))
-                                  (text (and msg (alist-get 'content msg))))
-                             (when (and text (not (string-empty-p (string-trim text))))
-                               (when (buffer-live-p snap-buffer)
-                                 (with-current-buffer snap-buffer
-                                   (when (and (= snap-point (point))
-                                              (= snap-tick (buffer-chars-modified-tick)))
-                                     (funcall callback (string-trim-right text))))))))
-                       (error
-                        (message "inline-suggestion: request error: %s"
-                                 (error-message-string err))))
-                   ;; Always clear in-flight flag when done
-                   (when (buffer-live-p snap-buffer)
-                     (with-current-buffer snap-buffer
-                       (setq inline-suggestion--request-in-flight nil)))
-                   (let ((buf (current-buffer)))
-                     (when (buffer-live-p buf)
-                       (let ((proc (get-buffer-process buf)))
-                         (when (and proc (process-live-p proc))
-                           (set-process-query-on-exit-flag proc nil)
-                           (delete-process proc)))
-                       (kill-buffer buf)))))
-               nil t t))
-        ;; Prevent "active connection" prompt on Emacs exit
-        (when-let ((proc (get-buffer-process inline-suggestion--http-buffer)))
-          (set-process-query-on-exit-flag proc nil))))))
+  (let* ((snap-point (point))
+         (snap-tick (buffer-chars-modified-tick))
+         (snap-buffer (current-buffer))
+         (prefix (inline-suggestion--build-prefix))
+         (suffix (inline-suggestion--build-suffix))
+         (url-request-method "POST")
+         (url-request-extra-headers
+          '(("Content-Type" . "application/json")))
+         (url-request-data (inline-suggestion--request-body prefix suffix))
+         (url-show-status nil)
+         (api-url (concat inline-suggestion-server-url "/infill")))
+    (setq inline-suggestion--request-in-flight t)
+    (setq inline-suggestion--http-buffer
+          (url-retrieve
+           api-url
+           (lambda (_status)
+             (unwind-protect
+                 (condition-case err
+                     (progn
+                       ;; Check for HTTP errors
+                       (goto-char (point-min))
+                       (unless (re-search-forward "^HTTP/[0-9.]+ 200" nil t)
+                         (goto-char (point-min))
+                         (let ((status-line (buffer-substring-no-properties
+                                             (point) (line-end-position)))
+                               (body ""))
+                           (when (re-search-forward "\r?\n\r?\n" nil t)
+                             (setq body (buffer-substring-no-properties
+                                         (point) (min (+ (point) 500) (point-max)))))
+                           (error "Non-200: %s | %s" status-line body)))
+                       ;; Jump to response body.
+                       (if (and (boundp 'url-http-end-of-headers)
+                                url-http-end-of-headers)
+                           (goto-char url-http-end-of-headers)
+                         (goto-char (point-min))
+                         (unless (re-search-forward "\r?\n\r?\n" nil t)
+                           (error "Could not find HTTP response body")))
+                       (let* ((json-object-type 'alist)
+                              (json-array-type 'vector)
+                              (resp (json-read))
+                              (text (alist-get 'content resp)))
+                         (when (and text (not (string-empty-p (string-trim text))))
+                           (when (buffer-live-p snap-buffer)
+                             (with-current-buffer snap-buffer
+                               (when (and (= snap-point (point))
+                                          (= snap-tick (buffer-chars-modified-tick)))
+                                 (funcall callback (string-trim-right text))))))))
+                   (error
+                    (message "inline-suggestion: request error: %s"
+                             (error-message-string err))))
+               ;; Always clear in-flight flag when done
+               (when (buffer-live-p snap-buffer)
+                 (with-current-buffer snap-buffer
+                   (setq inline-suggestion--request-in-flight nil)))
+               (let ((buf (current-buffer)))
+                 (when (buffer-live-p buf)
+                   (let ((proc (get-buffer-process buf)))
+                     (when (and proc (process-live-p proc))
+                       (set-process-query-on-exit-flag proc nil)
+                       (delete-process proc)))
+                   (kill-buffer buf)))))
+           nil t t))
+    ;; Prevent "active connection" prompt on Emacs exit
+    (when-let ((proc (get-buffer-process inline-suggestion--http-buffer)))
+      (set-process-query-on-exit-flag proc nil))))
 
 ;; ============================================================================
 ;; Overlay display  (technique adapted from copilot.el)
@@ -454,14 +420,16 @@ requests on slow connections."
 
 (defun inline-suggestion--kill-all-connections ()
   "Kill all lingering inline-suggestion HTTP buffers and connections."
-  (dolist (buf (buffer-list))
-    (when (and (buffer-live-p buf)
-               (string-match-p "\\` \\*http.*dashscope" (buffer-name buf)))
-      (let ((proc (get-buffer-process buf)))
-        (when (and proc (process-live-p proc))
-          (set-process-query-on-exit-flag proc nil)
-          (delete-process proc)))
-      (kill-buffer buf))))
+  (let ((host (url-host (url-generic-parse-url inline-suggestion-server-url))))
+    (dolist (buf (buffer-list))
+      (when (and (buffer-live-p buf)
+                 (string-match-p (concat "\\` \\*http.*" (regexp-quote host))
+                                 (buffer-name buf)))
+        (let ((proc (get-buffer-process buf)))
+          (when (and proc (process-live-p proc))
+            (set-process-query-on-exit-flag proc nil)
+            (delete-process proc)))
+        (kill-buffer buf)))))
 
 ;; ============================================================================
 ;; Minor mode
@@ -469,7 +437,7 @@ requests on slow connections."
 
 ;;;###autoload
 (define-minor-mode inline-suggestion-mode
-  "Minor mode for inline ghost text suggestions via Qwen FIM."
+  "Minor mode for inline ghost text suggestions via local llama.cpp FIM."
   :lighter " InlSug"
   :group 'inline-suggestion
   (if inline-suggestion-mode
