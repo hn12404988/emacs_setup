@@ -301,7 +301,7 @@ trailing text so existing content remains visible after the ghost."
       (setq inline-suggestion--active-keymap t)
       (set-transient-map inline-suggestion--keymap
                          (lambda () inline-suggestion--active-keymap)
-                         #'inline-suggestion-dismiss-and-replay))))
+                         (lambda (&rest _) (inline-suggestion--clear))))))
 
 (defun inline-suggestion--clear ()
   "Remove the suggestion overlay and deactivate the keymap."
