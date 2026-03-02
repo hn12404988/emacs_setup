@@ -723,5 +723,7 @@
   ;; Clone/update from GitHub via straight (the whole repo)
   (straight-use-package
    '(emacs_setup :host github :repo "hn12404988/emacs_setup" :no-build t))
+  :bind (:map my-keys-minor-mode-map
+         ("M-i" . inline-suggestion-toggle))
   :hook ((prog-mode . inline-suggestion-mode)
          (text-mode . inline-suggestion-mode)))

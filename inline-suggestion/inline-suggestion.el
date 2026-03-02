@@ -58,6 +58,28 @@
   :type 'integer
   :group 'inline-suggestion)
 
+(defcustom inline-suggestion-server-autostart t
+  "If non-nil, automatically start llama-server when the mode activates."
+  :type 'boolean
+  :group 'inline-suggestion)
+
+(defcustom inline-suggestion-server-model nil
+  "Model filename (e.g. \"qwen-coder-7b.gguf\").
+Falls back to the INLINE_SUGGEST_MODEL environment variable when nil."
+  :type '(choice (const :tag "Use $INLINE_SUGGEST_MODEL" nil)
+                 (string :tag "Model filename"))
+  :group 'inline-suggestion)
+
+(defcustom inline-suggestion-server-port 8080
+  "Port for the llama-server."
+  :type 'integer
+  :group 'inline-suggestion)
+
+(defcustom inline-suggestion-server-gpu-layers 99
+  "Number of GPU layers to offload (-ngl flag)."
+  :type 'integer
+  :group 'inline-suggestion)
+
 ;; ============================================================================
 ;; Internal state
 ;; ============================================================================
@@ -84,6 +106,16 @@ Works around Emacs reporting wrong cursor position with after-string overlays.")
 (defvar-local inline-suggestion--request-in-flight nil
   "Non-nil while an HTTP request is pending.
 Prevents sending another request until the current one completes.")
+
+(defvar inline-suggestion--server-pid-file "/tmp/inline-suggestion-llama.pid"
+  "PID file for the llama-server process.
+Shared with the Makefile so `make status'/`make down' remain compatible.")
+
+(defvar inline-suggestion--instance-dir "/tmp/inline-suggestion-emacs-instances/"
+  "Directory where each Emacs instance registers a PID file.")
+
+(defvar inline-suggestion--instance-registered nil
+  "Non-nil if this Emacs instance has been registered.")
 
 ;; ============================================================================
 ;; Keymap (active only while suggestion is visible)
@@ -432,6 +464,99 @@ requests on slow connections."
         (kill-buffer buf)))))
 
 ;; ============================================================================
+;; Server lifecycle
+;; ============================================================================
+
+(defun inline-suggestion--model-path ()
+  "Return the full path to the model file.
+Uses `inline-suggestion-server-model' if set, otherwise falls
+back to the INLINE_SUGGEST_MODEL environment variable."
+  (let ((model (or inline-suggestion-server-model
+                   (getenv "INLINE_SUGGEST_MODEL"))))
+    (unless model
+      (error "inline-suggestion: no model configured — set `inline-suggestion-server-model' or $INLINE_SUGGEST_MODEL"))
+    (expand-file-name model "~/models")))
+
+(defun inline-suggestion--server-running-p ()
+  "Return non-nil if the llama-server is running (by PID file check)."
+  (and (file-exists-p inline-suggestion--server-pid-file)
+       (let ((pid (string-to-number
+                   (string-trim
+                    (with-temp-buffer
+                      (insert-file-contents inline-suggestion--server-pid-file)
+                      (buffer-string))))))
+         (and (> pid 0)
+              (= 0 (signal-process pid 0))))))
+
+(defun inline-suggestion--server-start ()
+  "Start llama-server if `inline-suggestion-server-autostart' is set and it is not already running.
+Uses nohup so the server survives Emacs exit.  Writes the same
+PID file as the Makefile for full compatibility."
+  (when (and inline-suggestion-server-autostart
+             (not (inline-suggestion--server-running-p)))
+    (let ((model (inline-suggestion--model-path))
+          (port (number-to-string inline-suggestion-server-port))
+          (ngl  (number-to-string inline-suggestion-server-gpu-layers)))
+      (message "inline-suggestion: starting llama-server on port %s ..." port)
+      (shell-command-to-string
+       (format "nohup llama-server -m %s -ngl %s --port %s > /tmp/inline-suggestion-llama.log 2>&1 & echo $! > %s"
+               (shell-quote-argument model)
+               ngl
+               port
+               (shell-quote-argument inline-suggestion--server-pid-file)))
+      (message "inline-suggestion: llama-server started"))))
+
+(defun inline-suggestion--server-stop ()
+  "Stop the llama-server if it is running (by PID file)."
+  (when (file-exists-p inline-suggestion--server-pid-file)
+    (let ((pid (string-to-number
+                (string-trim
+                 (with-temp-buffer
+                   (insert-file-contents inline-suggestion--server-pid-file)
+                   (buffer-string))))))
+      (when (and (> pid 0)
+                 (= 0 (signal-process pid 0)))
+        (signal-process pid 15)
+        (message "inline-suggestion: llama-server stopped (pid %d)" pid)))
+    (delete-file inline-suggestion--server-pid-file)))
+
+(defun inline-suggestion--register-instance ()
+  "Register this Emacs instance by creating a PID file in the instance directory."
+  (unless inline-suggestion--instance-registered
+    (make-directory inline-suggestion--instance-dir t)
+    (let ((file (expand-file-name (number-to-string (emacs-pid))
+                                  inline-suggestion--instance-dir)))
+      (with-temp-file file
+        (insert (number-to-string (emacs-pid)))))
+    (setq inline-suggestion--instance-registered t)))
+
+(defun inline-suggestion--prune-stale-instances ()
+  "Remove instance PID files for Emacs processes that are no longer alive."
+  (when (file-directory-p inline-suggestion--instance-dir)
+    (dolist (file (directory-files inline-suggestion--instance-dir t "\\`[0-9]+\\'"))
+      (let ((pid (string-to-number (file-name-nondirectory file))))
+        (unless (and (> pid 0)
+                     (= 0 (signal-process pid 0)))
+          (delete-file file))))))
+
+(defun inline-suggestion--no-instances-remain-p ()
+  "Return non-nil if no Emacs instances are registered."
+  (or (not (file-directory-p inline-suggestion--instance-dir))
+      (null (directory-files inline-suggestion--instance-dir nil "\\`[0-9]+\\'"))))
+
+(defun inline-suggestion--unregister-instance ()
+  "Unregister this Emacs instance.  Stop the server if this was the last one."
+  (when inline-suggestion--instance-registered
+    (let ((file (expand-file-name (number-to-string (emacs-pid))
+                                  inline-suggestion--instance-dir)))
+      (when (file-exists-p file)
+        (delete-file file)))
+    (setq inline-suggestion--instance-registered nil)
+    (inline-suggestion--prune-stale-instances)
+    (when (inline-suggestion--no-instances-remain-p)
+      (inline-suggestion--server-stop))))
+
+;; ============================================================================
 ;; Minor mode
 ;; ============================================================================
 
@@ -444,13 +569,32 @@ requests on slow connections."
       (progn
         (add-hook 'post-command-hook #'inline-suggestion--post-command nil t)
         (add-hook 'kill-emacs-hook #'inline-suggestion--kill-all-connections)
-        (advice-add 'posn-at-point :before-until #'inline-suggestion--posn-advice))
+        (add-hook 'kill-emacs-hook #'inline-suggestion--unregister-instance)
+        (advice-add 'posn-at-point :before-until #'inline-suggestion--posn-advice)
+        (condition-case err
+            (progn
+              (inline-suggestion--register-instance)
+              (inline-suggestion--server-start))
+          (error
+           (message "inline-suggestion: server auto-start failed: %s"
+                    (error-message-string err)))))
     ;; Teardown
     (remove-hook 'post-command-hook #'inline-suggestion--post-command t)
     (inline-suggestion--cancel-timer)
     (inline-suggestion--cancel-request)
     (inline-suggestion--clear)
     (advice-remove 'posn-at-point #'inline-suggestion--posn-advice)))
+
+;;;###autoload
+(defun inline-suggestion-toggle ()
+  "Toggle `inline-suggestion-mode' in the current buffer."
+  (interactive)
+  (if inline-suggestion-mode
+      (progn
+        (inline-suggestion-mode -1)
+        (message "inline-suggestion OFF"))
+    (inline-suggestion-mode 1)
+    (message "inline-suggestion ON")))
 
 (provide 'inline-suggestion)
 
