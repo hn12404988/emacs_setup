@@ -209,19 +209,33 @@
 
 ;; LSP mode for IDE features (completion, go-to-definition, etc.)
 (use-package lsp-mode
-  :hook ((rust-mode . lsp-deferred))
+  :hook ((rust-mode . lsp-deferred)
+         ;; Add hooks for TypeScript and JavaScript
+         (typescript-mode . lsp-deferred)
+         (js-mode . lsp-deferred)
+         (typescript-ts-mode . lsp-deferred)) ;; For Emacs 29+ tree-sitter users
   :commands (lsp lsp-deferred)
+  :init
+  ;; Pre-configure Deno support
+  (setq lsp-deno-enable t)
   :config
+  ;; --- Deno First Logic ---
+  ;; Disable the standard TypeScript/JS language server (tsserver) 
+  ;; so Deno becomes the undisputed king of .ts files.
+  (setq lsp-disabled-clients '(ts-ls))
+  
+  ;; --- Your Original Settings ---
   (setq lsp-rust-analyzer-cargo-watch-command "clippy")
   (setq lsp-eldoc-enable-hover nil)
   (setq lsp-idle-delay 0.5)
-  ;; Auto-import projects without prompting
   (setq lsp-auto-guess-root t)
-  ;; Hide LSP buffers (space prefix = hidden from C-x b)
   (setq lsp-log-io-mode " *lsp-log*")
-  ;; Disable features you might find noisy (uncomment if needed)
-  ;; (setq lsp-enable-symbol-highlighting nil)
-  ;; (setq lsp-signature-auto-activate nil)
+
+  ;; --- Deno Specific Tweaks ---
+  ;; Ensure Deno suggests imports and handles linting
+  (setq lsp-deno-suggest-imports t)
+  (setq lsp-deno-suggest-auto-imports t)
+  (setq lsp-deno-suggest-complete-function-calls t)
   )
 
 ;; LSP UI enhancements
