@@ -643,6 +643,14 @@
   :bind (:map my-keys-minor-mode-map
               ("C-x g" . magit-status)))
 
+;; diff-hl - git diff indicators in the fringe (like VS Code's gutter colors)
+(use-package diff-hl
+  :hook ((after-init . global-diff-hl-mode)
+         (magit-pre-refresh . diff-hl-magit-pre-refresh)
+         (magit-post-refresh . diff-hl-magit-post-refresh))
+  :config
+  (diff-hl-flydiff-mode 1))
+
 ;; Rust keybindings
 (with-eval-after-load 'rust-mode
   (define-key rust-mode-map (kbd "C-c C-c") 'cargo-process-run)
