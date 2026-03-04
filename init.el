@@ -641,7 +641,8 @@
 ;; Magit
 (use-package magit
   :bind (:map my-keys-minor-mode-map
-              ("C-x g" . magit-status)))
+              ("C-x g" . magit-status))
+  :hook ((magit-mode . visual-line-mode)))
 
 ;; diff-hl - git diff indicators in the fringe (like VS Code's gutter colors)
 (use-package diff-hl
