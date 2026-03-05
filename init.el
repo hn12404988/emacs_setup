@@ -731,22 +731,23 @@
   (setq vterm-keymap-exceptions '("C-x" "C-u" "C-g" "C-h" "M-x" "M-o"))
   ;; ESC bindings for GUI Emacs
   (define-key vterm-mode-map [escape] #'vterm-send-escape)
-  ;; Bind C-g to send ESC (reliable in both terminal and GUI)
-  (define-key vterm-mode-map (kbd "C-g") #'vterm-send-escape)
-  ;; Also bind C-c C-e as alternative
-  (define-key vterm-mode-map (kbd "C-c C-e") #'vterm-send-escape))
+  ;; C-g sends ESC to vterm processes (e.g. Claude Code)
+  ;; In terminal Emacs, ESC is the Meta prefix and can't be rebound,
+  ;; so C-g is the way to send ESC
+  (define-key vterm-mode-map (kbd "C-g") #'vterm-send-escape))
 
 
 ;; Inline ghost text suggestions (Cursor-style, via local llama.cpp FIM)
-(use-package inline-suggestion
-  :straight nil
-  :diminish
-  :load-path "~/.emacs.d/straight/repos/emacs_setup/inline-suggestion"
-  :init
-  ;; Clone/update from GitHub via straight (the whole repo)
-  (straight-use-package
-   '(emacs_setup :host github :repo "hn12404988/emacs_setup" :no-build t))
-  :bind (:map my-keys-minor-mode-map
-         ("M-i" . inline-suggestion-toggle))
-  :hook ((prog-mode . inline-suggestion-mode)
-         (text-mode . inline-suggestion-mode)))
+;; Disabled - not needed; also prevents LLM server from starting on Emacs launch
+;; (use-package inline-suggestion
+;;   :straight nil
+;;   :diminish
+;;   :load-path "~/.emacs.d/straight/repos/emacs_setup/inline-suggestion"
+;;   :init
+;;   ;; Clone/update from GitHub via straight (the whole repo)
+;;   (straight-use-package
+;;    '(emacs_setup :host github :repo "hn12404988/emacs_setup" :no-build t))
+;;   :bind (:map my-keys-minor-mode-map
+;;          ("M-i" . inline-suggestion-toggle))
+;;   :hook ((prog-mode . inline-suggestion-mode)
+;;          (text-mode . inline-suggestion-mode)))
