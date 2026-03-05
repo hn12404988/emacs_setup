@@ -635,8 +635,8 @@
       (enlarge-window 1)
     (enlarge-window-horizontally 1)))
 
-(define-key my-keys-minor-mode-map (kbd "C-,") 'my/shrink-window-smart)
-(define-key my-keys-minor-mode-map (kbd "C-.") 'my/enlarge-window-smart)
+(define-key my-keys-minor-mode-map (kbd "M-[") 'my/shrink-window-smart)
+(define-key my-keys-minor-mode-map (kbd "M-]") 'my/enlarge-window-smart)
 
 ;; Magit
 (use-package magit
