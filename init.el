@@ -93,6 +93,11 @@
     (setq mac-option-key-is-meta t
           mac-option-modifier 'meta)))
 
+;; Terminal: decode Shift+Tab (ESC [ Z) as <backtab>
+(add-hook 'tty-setup-hook
+          (lambda ()
+            (define-key input-decode-map "\e[Z" [backtab])))
+
 ;; Enable clipboard integration
 (setq select-enable-clipboard t)
 (setq select-enable-primary t)
@@ -635,8 +640,9 @@
       (enlarge-window 1)
     (enlarge-window-horizontally 1)))
 
-(define-key my-keys-minor-mode-map (kbd "M-[") 'my/shrink-window-smart)
-(define-key my-keys-minor-mode-map (kbd "M-]") 'my/enlarge-window-smart)
+;; M-[ conflicts with terminal CSI prefix (ESC [), breaking Shift+Tab etc.
+(define-key my-keys-minor-mode-map (kbd "M-_") 'my/shrink-window-smart)
+(define-key my-keys-minor-mode-map (kbd "M-+") 'my/enlarge-window-smart)
 
 ;; Magit
 (use-package magit
@@ -734,7 +740,10 @@
   ;; C-g sends ESC to vterm processes (e.g. Claude Code)
   ;; In terminal Emacs, ESC is the Meta prefix and can't be rebound,
   ;; so C-g is the way to send ESC
-  (define-key vterm-mode-map (kbd "C-g") #'vterm-send-escape))
+  (define-key vterm-mode-map (kbd "C-g") #'vterm-send-escape)
+  ;; Forward Shift+Tab to vterm for Claude Code mode switching
+  (define-key vterm-mode-map [backtab]
+    (lambda () (interactive) (vterm-send-string "\e[Z"))))
 
 
 ;; Inline ghost text suggestions (Cursor-style, via local llama.cpp FIM)
