@@ -218,7 +218,8 @@
          ;; Add hooks for TypeScript and JavaScript
          (typescript-mode . lsp-deferred)
          (js-mode . lsp-deferred)
-         (typescript-ts-mode . lsp-deferred)) ;; For Emacs 29+ tree-sitter users
+         (typescript-ts-mode . lsp-deferred) ;; For Emacs 29+ tree-sitter users
+         (python-mode . lsp-deferred))
   :commands (lsp lsp-deferred)
   :init
   ;; Pre-configure Deno support
@@ -250,6 +251,12 @@
   (setq lsp-ui-doc-enable t)
   (setq lsp-ui-doc-position 'at-point)
   (setq lsp-ui-sideline-enable nil))
+
+;; Python LSP via Pyright (find references, go-to-definition, etc.)
+(use-package lsp-pyright
+  :hook (python-mode . (lambda ()
+                         (require 'lsp-pyright)
+                         (lsp-deferred))))
 
 ;; TOML support for Cargo.toml files
 (use-package toml-mode
