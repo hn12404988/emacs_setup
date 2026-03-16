@@ -750,7 +750,8 @@
   (define-key vterm-mode-map (kbd "C-g") #'vterm-send-escape)
   ;; Forward Shift+Tab to vterm for Claude Code mode switching
   (define-key vterm-mode-map [backtab]
-    (lambda () (interactive) (vterm-send-string "\e[Z"))))
+    (lambda () (interactive) (vterm-send-string "\e[Z")))
+  :hook (vterm-mode . (lambda () (display-line-numbers-mode -1))))
 
 
 ;; Inline ghost text suggestions (Cursor-style, via local llama.cpp FIM)
