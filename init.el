@@ -264,6 +264,8 @@
          ("Cargo\\.lock\\'" . toml-mode)))
 
 ;; Markdown support with live preview
+(use-package xterm-color)
+
 (use-package markdown-mode
   :mode (("\\.md\\'" . markdown-mode)
          ("\\.markdown\\'" . markdown-mode)
@@ -284,12 +286,40 @@
       (kill-buffer buf-name))
     (let ((buf (get-buffer-create buf-name)))
       (with-current-buffer buf
-        (shell-command (format "CLICOLOR_FORCE=1 glow -w 0 %s" (shell-quote-argument file)) buf)
-        (ansi-color-apply-on-region (point-min) (point-max))
+        (shell-command (format "script -q /dev/null sh -c 'TERM=xterm-256color COLORTERM=truecolor glow -w 0 %s'" (shell-quote-argument file)) buf)
+        (insert (xterm-color-filter (delete-and-extract-region (point-min) (point-max))))
         (view-mode 1)
         (local-set-key (kbd "q") 'kill-buffer-and-window))
       (pop-to-buffer buf))))
 
+(defun my/dired-preview-markdown-glow ()
+  "Preview markdown file at point in dired using glow."
+  (interactive)
+  (let* ((file (dired-get-file-for-visit))
+         (buf (get-buffer-create "*glow-preview*")))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (call-process "script" nil t nil "-q" "/dev/null"
+                      "sh" "-c" (format "TERM=dumb COLORTERM=truecolor glow -s dark -w 0 %s"
+                                        (shell-quote-argument file)))
+        ;; Strip pseudo-TTY control characters before color processing
+        (goto-char (point-min))
+        (while (re-search-forward "[\004\010\015]" nil t)
+          (replace-match ""))
+        (insert (xterm-color-filter (delete-and-extract-region (point-min) (point-max))))
+        (goto-char (point-min)))
+      (special-mode)
+      ;; Override Pip-Boy theme in this buffer so glow colors render naturally
+      (face-remap-add-relative 'default
+                               :foreground "#d4d4d4" :background "#1e1e1e")
+      (set (make-local-variable 'buffer-face-mode-face)
+           '(:foreground "#d4d4d4" :background "#1e1e1e"))
+      (buffer-face-mode 1))
+    (pop-to-buffer buf)))
+
+(with-eval-after-load 'dired
+  (define-key dired-mode-map (kbd "M") #'my/dired-preview-markdown-glow))
 
 (setq-default tab-width 4 indent-tabs-mode t)
 
