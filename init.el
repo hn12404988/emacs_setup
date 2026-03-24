@@ -310,15 +310,11 @@
         (insert (xterm-color-filter (delete-and-extract-region (point-min) (point-max))))
         (goto-char (point-min)))
       (special-mode)
-      ;; Override Pip-Boy theme in this buffer so glow colors render naturally
-      (face-remap-add-relative 'default
-                               :foreground "#d4d4d4" :background "#1e1e1e")
-      (set (make-local-variable 'buffer-face-mode-face)
-           '(:foreground "#d4d4d4" :background "#1e1e1e"))
-      (buffer-face-mode 1))
+      )
     (pop-to-buffer buf)))
 
 (with-eval-after-load 'dired
+  (setq dired-kill-when-opening-new-dired-buffer t)
   (define-key dired-mode-map (kbd "M") #'my/dired-preview-markdown-glow))
 
 (setq-default tab-width 4 indent-tabs-mode t)
@@ -350,175 +346,11 @@
 ;;               ("C-s" . company-select-next)))
 
 ;; ==========================================================================
-;; PIP-BOY THEME - Vault-Tec Approved Terminal Display
-;; Green phosphor CRT aesthetic inspired by the RobCo Pip-Boy 3000
-;; ==========================================================================
-
-;; Color palette
-(defvar pipboy-green       "#20C20E" "Primary phosphor green - main text.")
-(defvar pipboy-bright      "#33FF33" "Bright green - keywords, highlights.")
-(defvar pipboy-medium      "#18a010" "Medium green - types, functions.")
-(defvar pipboy-dim         "#0f6e0a" "Dim green - comments, secondary text.")
-(defvar pipboy-dark        "#0a3d08" "Dark green - subtle backgrounds.")
-(defvar pipboy-bg          "#0a0a0a" "Near-black background.")
-(defvar pipboy-bg-light    "#111611" "Slightly lighter background for contrast.")
-(defvar pipboy-region      "#1a3a1a" "Selection/region background.")
-(defvar pipboy-amber       "#FF8C00" "Amber - warnings, Pip-Boy alert color.")
-(defvar pipboy-red         "#CC3333" "Red - errors only.")
-;; Modern syntax colors (colorful but still feels techy on the green CRT)
-(defvar pipboy-cyan        "#61DAFB" "Cyan - functions.")
-(defvar pipboy-gold        "#E5C07B" "Gold - strings.")
-(defvar pipboy-teal        "#4EC9B0" "Teal - types.")
-(defvar pipboy-orange      "#D19A66" "Warm orange - constants, numbers.")
-(defvar pipboy-blue        "#9CDCFE" "Light blue - variables.")
-(defvar pipboy-purple      "#C586C0" "Soft purple - builtins, preprocessor.")
-(defvar pipboy-doc-green   "#6A9955" "Muted green - doc strings.")
-
-;; Frame defaults
-(add-to-list 'default-frame-alist `(foreground-color . ,pipboy-green))
-(add-to-list 'default-frame-alist `(background-color . ,pipboy-bg))
-
 ;; Font settings
 (condition-case nil
     (set-face-attribute 'default nil
                         :family "JetBrains Mono" :height 170 :weight 'normal)
   (error (message "JetBrains Mono font not available, using default")))
-
-;; Apply Pip-Boy faces after init to ensure they override everything
-(defun pipboy-apply-faces ()
-  "Apply Pip-Boy green phosphor CRT faces."
-
-  ;; Core faces
-  (set-face-attribute 'default nil
-                      :foreground pipboy-green :background pipboy-bg)
-  (set-face-attribute 'cursor nil
-                      :background pipboy-bright)
-  (set-face-attribute 'region nil
-                      :background pipboy-region :foreground pipboy-bright)
-  (set-face-attribute 'highlight nil
-                      :background pipboy-region)
-  (set-face-attribute 'fringe nil
-                      :background pipboy-bg :foreground pipboy-dark)
-  (set-face-attribute 'vertical-border nil
-                      :foreground pipboy-dark)
-  (set-face-attribute 'minibuffer-prompt nil
-                      :foreground pipboy-bright :weight 'bold)
-  (set-face-attribute 'link nil
-                      :foreground pipboy-bright :underline t)
-  (set-face-attribute 'link-visited nil
-                      :foreground pipboy-medium :underline t)
-  (set-face-attribute 'shadow nil
-                      :foreground pipboy-dim)
-
-  ;; Line numbers
-  (set-face-attribute 'line-number nil
-                      :foreground pipboy-dark :background pipboy-bg)
-  (set-face-attribute 'line-number-current-line nil
-                      :foreground pipboy-bright :background pipboy-bg-light
-                      :weight 'bold)
-
-  ;; Mode line - Pip-Boy status bar
-  (set-face-attribute 'mode-line nil
-                      :background "#0f3d0a"
-                      :foreground pipboy-bright)
-  (set-face-attribute 'mode-line-inactive nil
-                      :background pipboy-bg-light
-                      :foreground pipboy-dim)
-  (set-face-attribute 'mode-line-buffer-id nil
-                      :foreground pipboy-bright :weight 'bold)
-
-  ;; Syntax highlighting - modern colorful on Pip-Boy CRT
-  (set-face-attribute 'font-lock-keyword-face nil
-                      :foreground pipboy-bright :weight 'bold)
-  (set-face-attribute 'font-lock-function-name-face nil
-                      :foreground pipboy-cyan)
-  (set-face-attribute 'font-lock-variable-name-face nil
-                      :foreground pipboy-blue)
-  (set-face-attribute 'font-lock-string-face nil
-                      :foreground pipboy-gold)
-  (set-face-attribute 'font-lock-comment-face nil
-                      :foreground pipboy-dim :slant 'italic)
-  (set-face-attribute 'font-lock-comment-delimiter-face nil
-                      :foreground pipboy-dim :slant 'italic)
-  (set-face-attribute 'font-lock-type-face nil
-                      :foreground pipboy-teal :weight 'bold)
-  (set-face-attribute 'font-lock-constant-face nil
-                      :foreground pipboy-orange)
-  (set-face-attribute 'font-lock-builtin-face nil
-                      :foreground pipboy-purple)
-  (set-face-attribute 'font-lock-preprocessor-face nil
-                      :foreground pipboy-purple)
-  (set-face-attribute 'font-lock-warning-face nil
-                      :foreground pipboy-amber :weight 'bold)
-  (set-face-attribute 'font-lock-doc-face nil
-                      :foreground pipboy-doc-green :slant 'italic)
-
-  ;; Search
-  (set-face-attribute 'isearch nil
-                      :background pipboy-bright :foreground pipboy-bg
-                      :weight 'bold)
-  (set-face-attribute 'lazy-highlight nil
-                      :background pipboy-dark :foreground pipboy-bright)
-  (set-face-attribute 'isearch-fail nil
-                      :background pipboy-red :foreground pipboy-bg)
-
-  ;; Paren matching
-  (set-face-attribute 'show-paren-match nil
-                      :background pipboy-dark :foreground pipboy-bright
-                      :weight 'bold)
-  (set-face-attribute 'show-paren-mismatch nil
-                      :background pipboy-red :foreground pipboy-bg)
-
-  ;; Flycheck / errors & warnings
-  (when (facep 'flycheck-error)
-    (set-face-attribute 'flycheck-error nil
-                        :underline `(:style wave :color ,pipboy-red))
-    (set-face-attribute 'flycheck-warning nil
-                        :underline `(:style wave :color ,pipboy-amber))
-    (set-face-attribute 'flycheck-info nil
-                        :underline `(:style wave :color ,pipboy-dim)))
-
-  ;; Completions
-  (when (facep 'completions-common-part)
-    (set-face-attribute 'completions-common-part nil
-                        :foreground pipboy-bright :weight 'bold)
-    (set-face-attribute 'completions-first-difference nil
-                        :foreground pipboy-amber))
-
-  ;; Markdown
-  (when (facep 'markdown-header-face-1)
-    (set-face-attribute 'markdown-header-face-1 nil
-                        :foreground pipboy-bright :weight 'bold :height 1.3)
-    (set-face-attribute 'markdown-header-face-2 nil
-                        :foreground pipboy-medium :weight 'bold :height 1.2)
-    (set-face-attribute 'markdown-header-face-3 nil
-                        :foreground pipboy-dim :weight 'bold :height 1.1))
-
-  ;; Magit
-  (when (facep 'magit-section-heading)
-    (set-face-attribute 'magit-section-heading nil
-                        :foreground pipboy-bright :weight 'bold)
-    (set-face-attribute 'magit-diff-added nil
-                        :foreground pipboy-bright :background "#0a1f0a")
-    (set-face-attribute 'magit-diff-removed nil
-                        :foreground pipboy-red :background "#1f0a0a")
-    (set-face-attribute 'magit-diff-added-highlight nil
-                        :foreground pipboy-bright :background "#0f2f0f")
-    (set-face-attribute 'magit-diff-removed-highlight nil
-                        :foreground pipboy-red :background "#2f0f0f"))
-
-  ;; LSP UI
-  (when (facep 'lsp-ui-doc-background)
-    (set-face-attribute 'lsp-ui-doc-background nil
-                        :background pipboy-bg-light))
-  (when (facep 'lsp-face-highlight-textual)
-    (set-face-attribute 'lsp-face-highlight-textual nil
-                        :background pipboy-region))
-  )
-
-(add-hook 'after-init-hook #'pipboy-apply-faces)
-;; Also apply to new frames
-(add-hook 'server-after-make-frame-hook #'pipboy-apply-faces)
 
 
 ;; Smart scroll function for M-w
@@ -761,7 +593,6 @@
  '(tool-bar-mode nil))
 
 (custom-set-faces
- ;; Pip-Boy theme handles faces via pipboy-apply-faces
  )
 
 
