@@ -555,8 +555,8 @@
     (enlarge-window-horizontally 1)))
 
 ;; M-[ conflicts with terminal CSI prefix (ESC [), breaking Shift+Tab etc.
-(define-key my-keys-minor-mode-map (kbd "M-_") 'my/shrink-window-smart)
-(define-key my-keys-minor-mode-map (kbd "M-+") 'my/enlarge-window-smart)
+(define-key my-keys-minor-mode-map (kbd "M-_") 'my/enlarge-window-smart)
+(define-key my-keys-minor-mode-map (kbd "M-+") 'my/shrink-window-smart)
 
 ;; Magit
 (use-package magit
