@@ -330,6 +330,11 @@
         (local-set-key (kbd "q") 'kill-buffer-and-window))
       (pop-to-buffer buf))))
 
+;; Make "q" kill buffers instead of burying them
+(advice-add 'quit-window :around
+            (lambda (orig-fun &optional kill window)
+              (funcall orig-fun t window)))
+
 (defun my/dired-preview-markdown-glow ()
   "Preview markdown file at point in dired using glow."
   (interactive)
