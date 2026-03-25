@@ -160,13 +160,6 @@
   (setq exec-path-from-shell-arguments nil)
   (exec-path-from-shell-initialize))
 
-;; color-identifiers-mode (enable per-mode instead of globally for performance)
-(use-package color-identifiers-mode
-  :diminish
-  :hook ((rust-mode . color-identifiers-mode)
-         (js-mode . color-identifiers-mode)
-         (typescript-mode . color-identifiers-mode)))
-
 (add-to-list 'auto-mode-alist '("\\.js$" . js-mode))
 
 ;; TypeScript support
@@ -274,6 +267,28 @@
   (setq lsp-ui-doc-enable t)
   (setq lsp-ui-doc-position 'at-point)
   (setq lsp-ui-sideline-enable nil))
+
+(use-package lsp-treemacs
+  :after lsp
+  :config
+  (lsp-treemacs-sync-mode 1))
+
+;; Display flycheck errors as a narrow sidebar on the right
+(add-to-list 'display-buffer-alist
+             '("\\*Flycheck errors\\*"
+               (display-buffer-in-side-window)
+               (side . right)
+               (window-width . 0.3)
+               (slot . 0)))
+
+(defun my/toggle-flycheck-errors ()
+  "Toggle the flycheck errors sidebar."
+  (interactive)
+  (let ((win (get-buffer-window "*Flycheck errors*")))
+    (if win
+        (delete-window win)
+      (flycheck-list-errors)
+      (other-window 1))))
 
 ;; Python LSP via Pyright (find references, go-to-definition, etc.)
 (use-package lsp-pyright
@@ -517,6 +532,8 @@
 (define-key my-keys-minor-mode-map (kbd "C-x C-f") 'projectile-find-file)
 (define-key my-keys-minor-mode-map (kbd "C-M-f") 'projectile-grep)
 (define-key my-keys-minor-mode-map (kbd "C-k") 'kill-whole-line)
+;; Toggle flycheck errors sidebar
+(define-key my-keys-minor-mode-map (kbd "M-1") 'my/toggle-flycheck-errors)
 ;; Window resize - smart split line movement
 (defun my/shrink-window-smart ()
   "Move split line left (side-by-side) or up (stacked)."
