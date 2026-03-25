@@ -354,7 +354,7 @@
         (goto-char (point-min)))
       (special-mode)
       )
-    (pop-to-buffer buf)))
+    (switch-to-buffer buf)))
 
 (with-eval-after-load 'dired
   (setq dired-kill-when-opening-new-dired-buffer t)
@@ -562,7 +562,9 @@
 (use-package magit
   :bind (:map my-keys-minor-mode-map
               ("C-x g" . magit-status))
-  :hook ((magit-mode . visual-line-mode)))
+  :hook ((magit-mode . visual-line-mode))
+  :custom
+  (magit-display-buffer-function #'magit-display-buffer-fullframe-status-v1))
 
 ;; diff-hl - git diff indicators in the fringe (like VS Code's gutter colors)
 (use-package diff-hl
