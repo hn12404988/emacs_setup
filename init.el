@@ -86,6 +86,8 @@
 ;;ido
 (ido-mode 1)
 (setq ido-default-buffer-method 'selected-window)
+;; Hide *special* buffers from C-x b
+(setq ido-ignore-buffers '("\\` " "\\`\\*.*\\*\\'"))
 
 ;; Mac-specific settings - use Option as Meta in terminal
 (when (eq system-type 'darwin)
@@ -481,6 +483,17 @@
   (add-hook 'prog-mode-hook 'flyspell-prog-mode)
   (eval-after-load "flyspell"
     '(define-key flyspell-mode-map (kbd "C-c") nil)))
+
+;; Use ibuffer for C-x C-b, hiding *special* buffers
+(global-set-key (kbd "C-x C-b") 'ibuffer)
+(setq ibuffer-saved-filter-groups
+      '(("default"
+         ("User" (not name . "\\`\\*.*\\*\\'")))))
+(add-hook 'ibuffer-mode-hook
+          (lambda ()
+            (ibuffer-switch-to-saved-filter-groups "default")
+            ;; Collapse the [Default] group (the *special* buffers)
+            (setq ibuffer-hidden-filter-groups '("Default"))))
 
 ;; Line numbers
 (if (version<= "26.0.50" emacs-version)
