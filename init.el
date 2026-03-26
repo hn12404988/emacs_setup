@@ -30,6 +30,7 @@
 
 ;; Auto-revert buffers when files change on disk
 (global-auto-revert-mode 1)
+(setq auto-revert-check-vc-info t)
 
 ;; PATH setup handled by exec-path-from-shell package below
 
