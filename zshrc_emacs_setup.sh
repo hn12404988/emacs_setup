@@ -104,7 +104,7 @@
 # THE FIX: start the daemon with `env -i` to wipe the environment
 # clean, then pass back ONLY the variables Emacs actually needs:
 #
-#   env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" emacs --daemon="$sock"
+#   env -i HOME="$HOME" PATH="$PATH" TMPDIR=/tmp emacs --daemon="$sock"
 #
 # Why each variable:
 #
@@ -115,15 +115,13 @@
 #            (rust-analyzer, pyright, deno), git, aspell, pandoc, etc.
 #            Without it, LSP, flycheck, magit, and spell-check all break.
 #
-#   TMPDIR — THIS ONE IS SUBTLE. On macOS, TMPDIR is NOT /tmp/.
-#            It's something like /var/folders/37/5h4y.../T/.
-#            The Emacs daemon creates its socket file under TMPDIR.
-#            emacsclient also looks for sockets under TMPDIR.
-#            If the daemon starts without TMPDIR (env -i clears it),
-#            it falls back to /tmp/emacs<UID>/, but emacsclient still
-#            looks under the real TMPDIR path. Result: "can't find
-#            socket" error even though the daemon is running fine.
-#            Passing TMPDIR ensures both sides agree on the socket path.
+#   TMPDIR — We hardcode TMPDIR=/tmp so the daemon always creates its
+#            socket under /tmp/emacs<UID>/. This is critical for remote
+#            access: on macOS, the local TMPDIR is /var/folders/37/5h4y.../T/,
+#            but SSH sessions (e.g. Tailscale SSH) may have a different or
+#            empty TMPDIR. By always using /tmp, both local and remote
+#            sessions find sockets in the same place, so `ekill` and
+#            `ekillall` work from anywhere.
 #
 #
 # ===========================================================================
@@ -139,13 +137,18 @@
 #   - If a daemon already exists, emacsclient just connects to it.
 #   - Two terminals in the SAME directory share one daemon (and buffers).
 #   - Two terminals in DIFFERENT directories get separate daemons.
+#   - Sockets always live under /tmp/emacs<UID>/ so that local and
+#     remote (e.g. Tailscale SSH) sessions can manage the same daemons.
 
-_emacs_socket_name() {
-  echo "emacs-$(basename "$PWD")"
+# Fixed socket directory — never depends on TMPDIR.
+EMACS_SOCK_DIR="/tmp/emacs$(id -u)"
+
+_emacs_socket_path() {
+  echo "$EMACS_SOCK_DIR/emacs-$(basename "$PWD")"
 }
 
 e() {
-  local sock=$(_emacs_socket_name)
+  local sock=$(_emacs_socket_path)
 
   # Check if a daemon with this socket name is already running.
   # `emacsclient -e nil` is a lightweight ping — returns "nil" if
@@ -154,11 +157,12 @@ e() {
     # No daemon running for this directory. Start one.
     # env -i wipes inherited environment (especially tmux vars that
     # break colors). We pass back only what Emacs needs.
-    env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" emacs --daemon="$sock"
+    # TMPDIR=/tmp ensures the socket lands in our fixed EMACS_SOCK_DIR.
+    env -i HOME="$HOME" PATH="$PATH" TMPDIR=/tmp emacs --daemon="$sock"
   fi
 
   # Connect to the daemon.
-  #   -s "$sock"  — use the named socket for this directory
+  #   -s "$sock"  — use the named socket (full path) for this directory
   #   -nw         — open in the terminal (no GUI window)
   if [ $# -eq 0 ]; then
     # No arguments: open dired (file browser) at current directory
@@ -171,7 +175,7 @@ e() {
 
 # Kill the daemon for the current directory only.
 ekill() {
-  local sock=$(_emacs_socket_name)
+  local sock=$(_emacs_socket_path)
   emacsclient -s "$sock" -e "(kill-emacs)"
 }
 
@@ -182,7 +186,7 @@ elist() {
 
 # Nuclear option: kill ALL Emacs daemons.
 ekillall() {
-  for s in /tmp/emacs$(id -u)/emacs-*; do
+  for s in "$EMACS_SOCK_DIR"/emacs-*; do
     [ -e "$s" ] && emacsclient -s "$s" -e "(kill-emacs)" 2>/dev/null
   done
 }
