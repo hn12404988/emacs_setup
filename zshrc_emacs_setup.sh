@@ -175,6 +175,11 @@ ekill() {
   emacsclient -s "$sock" -e "(kill-emacs)"
 }
 
+# List all running Emacs daemons.
+elist() {
+  ps aux | grep -i 'emacs.*daemon' | grep -v grep
+}
+
 # Nuclear option: kill ALL Emacs daemons.
 ekillall() {
   for s in /tmp/emacs$(id -u)/emacs-*; do
@@ -191,6 +196,7 @@ export EDITOR='emacsclient -nw'
 #
 # e              — Open dired in current directory (auto-starts daemon)
 # e file.txt     — Open file in current directory's daemon
+# elist          — List all running Emacs daemons
 # ekill          — Kill the daemon for the current directory
 # ekillall       — Kill ALL running Emacs daemons
 #
