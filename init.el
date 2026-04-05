@@ -380,16 +380,10 @@
 (use-package yasnippet-snippets
   :after yasnippet)
 
-;; Company mode - disabled in favor of inline-suggestion
-;; (use-package company
-;;   :hook (prog-mode . company-mode)
-;;   :config
-;;   (setq company-idle-delay 0.2)
-;;   (setq company-minimum-prefix-length 1)
-;;   (setq company-selection-wrap-around t)
-;;   :bind (:map company-active-map
-;;               ("C-w" . company-select-previous)
-;;               ("C-s" . company-select-next)))
+;; Company mode - navigate suggestions with C-w / C-s
+(with-eval-after-load 'company
+  (define-key company-active-map (kbd "C-w") #'company-select-previous)
+  (define-key company-active-map (kbd "C-s") #'company-select-next))
 
 ;; ==========================================================================
 ;; Font settings
