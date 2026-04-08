@@ -105,12 +105,22 @@
 (setq select-enable-clipboard t)
 (setq select-enable-primary t)
 
-;; macOS clipboard support for terminal Emacs
+;; OSC 52 clipboard support (works over SSH through tmux)
+(defun my/osc52-copy (text)
+  "Copy TEXT to system clipboard via OSC 52 escape sequence.
+Works over SSH through tmux (requires `set -s set-clipboard on`)."
+  (send-string-to-terminal
+   (format "\e]52;c;%s\a"
+           (base64-encode-string (encode-coding-string text 'utf-8) t))))
+
 (defun copy-to-macos-clipboard ()
-  "Copy region to macOS clipboard."
+  "Copy region to clipboard. Uses OSC 52 in terminal (works over SSH)."
   (interactive)
   (when (use-region-p)
-    (shell-command-on-region (region-beginning) (region-end) "pbcopy")
+    (let ((text (buffer-substring-no-properties (region-beginning) (region-end))))
+      (if (display-graphic-p)
+          (shell-command-on-region (region-beginning) (region-end) "pbcopy")
+        (my/osc52-copy text)))
     (message "Copied to clipboard")
     (deactivate-mark)))
 
