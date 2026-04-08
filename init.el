@@ -580,7 +580,18 @@
          (magit-pre-refresh . diff-hl-magit-pre-refresh)
          (magit-post-refresh . diff-hl-magit-post-refresh))
   :config
-  (diff-hl-flydiff-mode 1))
+  (diff-hl-flydiff-mode 1)
+  ;; Auto-refresh diff-hl when git state changes outside Emacs
+  ;; (idle timer catches external git add/commit/push)
+  (run-with-idle-timer 3 t
+    (lambda ()
+      (when (and (bound-and-true-p diff-hl-mode) buffer-file-name)
+        (diff-hl-update))))
+  ;; Also refresh when switching buffers
+  (add-hook 'window-buffer-change-functions
+            (lambda (_frame)
+              (when (and (bound-and-true-p diff-hl-mode) buffer-file-name)
+                (diff-hl-update)))))
 
 ;; Rust keybindings
 (with-eval-after-load 'rust-mode
