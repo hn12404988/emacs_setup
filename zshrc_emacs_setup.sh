@@ -31,6 +31,25 @@
 #      gunzip terminfo.src.gz
 #      /usr/bin/tic -xe tmux-256color terminfo.src
 #
+# 4. (Ghostty users) Install xterm-ghostty terminfo on remote machines:
+#
+#    Ghostty sets TERM=xterm-ghostty. When you SSH from a Ghostty
+#    terminal to a remote machine, the remote needs this terminfo —
+#    otherwise you get: "missing or unsuitable terminal: xterm-ghostty"
+#
+#    The terminfo ships inside Ghostty.app but is NOT installed to the
+#    system terminfo paths, so even a Mac with Ghostty installed may
+#    fail when SSHed into from another Ghostty session.
+#
+#    On a machine that has Ghostty, install to ~/.terminfo locally:
+#      infocmp -x xterm-ghostty | tic -x -
+#
+#    Or push from a Ghostty machine to a remote that does NOT have Ghostty:
+#      infocmp -x xterm-ghostty | ssh <remote> tic -x -
+#
+#    This is safe to run on every machine — it won't affect Terminal.app
+#    or other terminals. They simply ignore it.
+#
 #
 # ===========================================================================
 # IMPORTANT: DO NOT USE A LAUNCHD EMACS DAEMON
@@ -56,12 +75,15 @@
 #
 #   set -g default-terminal "tmux-256color"
 #   set -ag terminal-overrides ",xterm-256color:RGB"
+#   set -ag terminal-overrides ",xterm-ghostty:RGB"
 #
 # CRITICAL NOTES:
 #
 #   - "terminal-overrides" matches the OUTER terminal (the terminal
 #     emulator that is running tmux), NOT the TERM used inside tmux.
-#     Your outer terminal is typically "xterm-256color".
+#     Terminal.app / iTerm2 typically use "xterm-256color".
+#     Ghostty uses "xterm-ghostty".
+#     You need a rule for each outer terminal you use.
 #
 #   - Do NOT add "tmux-256color:RGB" to terminal-overrides.
 #     That pattern would only match if tmux were running inside another
@@ -69,7 +91,7 @@
 #     and broken rendering.
 #
 #   - If your terminal emulator uses a different TERM (e.g. "alacritty"),
-#     change the pattern accordingly: ",alacritty:RGB"
+#     add a rule accordingly: ",alacritty:RGB"
 #
 #   - After changing terminal-overrides, you MUST kill the tmux server
 #     and start fresh. Just sourcing the config is NOT enough:
