@@ -221,27 +221,30 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
 ;; --- Auto-detect Deno vs Node.js ---
 ;; Defined before use-package lsp-mode so the setup hook is available
 ;; for the very first TypeScript/JS file opened in the session.
+;; Uses locate-dominating-file (built-in) to avoid dependency on
+;; projectile or lsp-workspace-root which may not be loaded yet.
 (defun my/project-has-file-p (&rest files)
-  "Return non-nil if any of FILES exist in the project root."
-  (when-let ((root (or (and (fboundp 'lsp-workspace-root) (lsp-workspace-root))
-                       (projectile-project-root))))
-    (cl-some (lambda (f) (file-exists-p (expand-file-name f root))) files)))
+  "Return non-nil if any of FILES exist in a parent directory."
+  (let ((dir (or buffer-file-name default-directory)))
+    (cl-some (lambda (f) (locate-dominating-file dir f)) files)))
 
 (defun my/setup-ts-js-lsp ()
   "Configure LSP client per-project: Deno for Deno projects, ts-ls for Node."
-  (if (my/project-has-file-p "deno.json" "deno.jsonc")
-      ;; Deno project
-      (progn
-        (setq-local lsp-disabled-clients '(ts-ls))
-        (setq-local lsp-deno-enable t))
-    (if (my/project-has-file-p "package.json" "tsconfig.json")
-        ;; Node.js project
-        (progn
-          (setq-local lsp-disabled-clients '(deno-ls))
-          (setq-local lsp-deno-enable nil))
-      ;; No marker found — default to Deno
-      (setq-local lsp-disabled-clients '(ts-ls))
-      (setq-local lsp-deno-enable t))))
+  (condition-case err
+      (if (my/project-has-file-p "deno.json" "deno.jsonc")
+          ;; Deno project
+          (progn
+            (setq-local lsp-disabled-clients '(ts-ls))
+            (setq-local lsp-deno-enable t))
+        (if (my/project-has-file-p "package.json" "tsconfig.json")
+            ;; Node.js project
+            (progn
+              (setq-local lsp-disabled-clients '(deno-ls))
+              (setq-local lsp-deno-enable nil))
+          ;; No marker found — default to Deno
+          (setq-local lsp-disabled-clients '(ts-ls))
+          (setq-local lsp-deno-enable t)))
+    (error (message "my/setup-ts-js-lsp: %s" err))))
 
 ;; LSP mode for IDE features (completion, go-to-definition, etc.)
 (use-package lsp-mode
