@@ -218,49 +218,43 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
 (use-package flycheck-rust
   :hook (flycheck-mode . flycheck-rust-setup))
 
+;; --- Auto-detect Deno vs Node.js ---
+;; Defined before use-package lsp-mode so the setup hook is available
+;; for the very first TypeScript/JS file opened in the session.
+(defun my/project-has-file-p (&rest files)
+  "Return non-nil if any of FILES exist in the project root."
+  (when-let ((root (or (and (fboundp 'lsp-workspace-root) (lsp-workspace-root))
+                       (projectile-project-root))))
+    (cl-some (lambda (f) (file-exists-p (expand-file-name f root))) files)))
+
+(defun my/setup-ts-js-lsp ()
+  "Configure LSP client per-project: Deno for Deno projects, ts-ls for Node."
+  (if (my/project-has-file-p "deno.json" "deno.jsonc")
+      ;; Deno project
+      (progn
+        (setq-local lsp-disabled-clients '(ts-ls))
+        (setq-local lsp-deno-enable t))
+    (if (my/project-has-file-p "package.json" "tsconfig.json")
+        ;; Node.js project
+        (progn
+          (setq-local lsp-disabled-clients '(deno-ls))
+          (setq-local lsp-deno-enable nil))
+      ;; No marker found — default to Deno
+      (setq-local lsp-disabled-clients '(ts-ls))
+      (setq-local lsp-deno-enable t))))
+
 ;; LSP mode for IDE features (completion, go-to-definition, etc.)
 (use-package lsp-mode
   :hook ((rust-mode . lsp-deferred)
-         ;; Add hooks for TypeScript and JavaScript
          (typescript-mode . lsp-deferred)
          (js-mode . lsp-deferred)
          (typescript-ts-mode . lsp-deferred) ;; For Emacs 29+ tree-sitter users
          (python-mode . lsp-deferred))
   :commands (lsp lsp-deferred)
   :init
-  ;; Pre-configure Deno support
-  (setq lsp-deno-enable t)
+  ;; Default Deno off; my/setup-ts-js-lsp enables it per-project
+  (setq lsp-deno-enable nil)
   :config
-  ;; --- Auto-detect Deno vs Node.js ---
-  ;; Use Deno LSP when deno.json/deno.jsonc exists in project root,
-  ;; otherwise use ts-ls (tsserver) for Node.js projects.
-  ;; When neither marker is found, default to Deno (primary workflow).
-  (defun my/project-has-file-p (&rest files)
-    "Return non-nil if any of FILES exist in the project root."
-    (when-let ((root (or (lsp-workspace-root) (projectile-project-root))))
-      (cl-some (lambda (f) (file-exists-p (expand-file-name f root))) files)))
-
-  (defun my/setup-ts-js-lsp ()
-    "Configure LSP client per-project: Deno for Deno projects, ts-ls for Node."
-    (if (my/project-has-file-p "deno.json" "deno.jsonc")
-        ;; Deno project
-        (progn
-          (setq-local lsp-disabled-clients '(ts-ls))
-          (setq-local lsp-deno-enable t))
-      (if (my/project-has-file-p "package.json" "tsconfig.json")
-          ;; Node.js project
-          (progn
-            (setq-local lsp-disabled-clients '(deno-ls))
-            (setq-local lsp-deno-enable nil))
-        ;; No marker found — default to Deno
-        (setq-local lsp-disabled-clients '(ts-ls))
-        (setq-local lsp-deno-enable t))))
-
-  (add-hook 'typescript-mode-hook #'my/setup-ts-js-lsp)
-  (add-hook 'js-mode-hook #'my/setup-ts-js-lsp)
-  (add-hook 'typescript-ts-mode-hook #'my/setup-ts-js-lsp)
-
-  ;; --- Your Original Settings ---
   (setq lsp-rust-analyzer-cargo-watch-command "clippy")
   (setq lsp-eldoc-enable-hover nil)
   (setq lsp-idle-delay 0.5)
@@ -272,6 +266,11 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
   (setq lsp-deno-suggest-auto-imports t)
   (setq lsp-deno-suggest-complete-function-calls t)
   )
+
+;; Register AFTER use-package :hook so LIFO order ensures setup runs BEFORE lsp-deferred
+(add-hook 'typescript-mode-hook #'my/setup-ts-js-lsp)
+(add-hook 'js-mode-hook #'my/setup-ts-js-lsp)
+(add-hook 'typescript-ts-mode-hook #'my/setup-ts-js-lsp)
 
 ;; LSP UI enhancements
 (use-package lsp-ui
