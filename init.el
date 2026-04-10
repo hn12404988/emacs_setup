@@ -117,10 +117,10 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
   "Copy region to clipboard via pbcopy."
   (interactive)
   (when (use-region-p)
-    (let* ((text (buffer-substring-no-properties (region-beginning) (region-end)))
-           (process (start-process "pbcopy" nil "pbcopy")))
-      (process-send-string process text)
-      (process-send-eof process))
+    (let ((text (buffer-substring-no-properties (region-beginning) (region-end))))
+      (with-temp-buffer
+        (insert text)
+        (call-process-region (point-min) (point-max) "pbcopy")))
     (message "Copied to clipboard")
     (deactivate-mark)))
 
@@ -143,9 +143,9 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
   (when (use-region-p)
     (let ((text (buffer-substring-no-properties (region-beginning) (region-end))))
       (kill-ring-save (region-beginning) (region-end))
-      (let ((process (start-process "pbcopy" nil "pbcopy")))
-        (process-send-string process text)
-        (process-send-eof process))
+      (with-temp-buffer
+        (insert text)
+        (call-process-region (point-min) (point-max) "pbcopy"))
       (message "Copied to clipboard"))))
 
 ;; Disable startup messages (keep *Messages* for debugging)
