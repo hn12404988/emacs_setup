@@ -109,12 +109,18 @@
 # --- Tailscale ---
 #
 #   sudo tailscale set --operator=$USER
-#   tailscale up
+#   tailscale up --ssh
 #
-# DO NOT use `tailscale up --ssh`. Tailscale's SSH handler sets
-# TERM=dumb which breaks tmux, colors, and OSC 52 clipboard.
-# Instead, let regular OpenSSH handle SSH sessions over the
-# Tailscale network interface — same security, full terminal support.
+# Use --ssh to enable Tailscale SSH. This means:
+#   - No SSH keys needed — Tailscale account handles authentication
+#   - OpenSSH sshd can be disabled entirely (more secure)
+#   - IMPORTANT: you MUST use Ghostty (or iTerm2) as your terminal.
+#     macOS Terminal.app does NOT support OSC 52 clipboard, and may
+#     also cause TERM issues. Ghostty works perfectly with Tailscale SSH.
+#
+# After verifying Tailscale SSH works, disable OpenSSH:
+#   sudo systemctl disable --now ssh
+#   rm ~/.ssh/authorized_keys
 #
 # --- Automatic security updates ---
 #
@@ -550,13 +556,8 @@ export EDITOR='emacsclient -nw'
 #
 # tmux copy mode doesn't copy to clipboard over SSH:
 #   1. Make sure you're using Ghostty (not Terminal.app — no OSC 52).
+#      This is the most common cause. Terminal.app silently drops
+#      OSC 52 sequences, making it look like tmux clipboard is broken.
 #   2. tmux.conf must use `copy-selection-and-cancel` (not copy-pipe "").
 #   3. tmux.conf must have `set -s set-clipboard on`.
-#   4. Do NOT use Tailscale SSH (--ssh) — it sets TERM=dumb.
-#      Use regular SSH over Tailscale network instead.
-#
-# TERM=dumb in SSH session:
-#   Caused by Tailscale SSH handler. Disable it:
-#     tailscale set --ssh=false --accept-risk=lose-ssh
-#   Then reconnect via regular SSH. The firewall still protects you
-#   (only tailscale0 interface allows incoming).
+#   Tailscale SSH works fine with Ghostty — no need to disable it.
