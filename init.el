@@ -114,13 +114,13 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
            (base64-encode-string (encode-coding-string text 'utf-8) t))))
 
 (defun copy-to-macos-clipboard ()
-  "Copy region to clipboard. Uses OSC 52 in terminal (works over SSH)."
+  "Copy region to clipboard via pbcopy."
   (interactive)
   (when (use-region-p)
-    (let ((text (buffer-substring-no-properties (region-beginning) (region-end))))
-      (if (display-graphic-p)
-          (shell-command-on-region (region-beginning) (region-end) "pbcopy")
-        (my/osc52-copy text)))
+    (let* ((text (buffer-substring-no-properties (region-beginning) (region-end)))
+           (process (start-process "pbcopy" nil "pbcopy")))
+      (process-send-string process text)
+      (process-send-eof process))
     (message "Copied to clipboard")
     (deactivate-mark)))
 
@@ -143,9 +143,9 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
   (when (use-region-p)
     (let ((text (buffer-substring-no-properties (region-beginning) (region-end))))
       (kill-ring-save (region-beginning) (region-end))
-      (if (display-graphic-p)
-          (shell-command-on-region (region-beginning) (region-end) "pbcopy")
-        (my/osc52-copy text))
+      (let ((process (start-process "pbcopy" nil "pbcopy")))
+        (process-send-string process text)
+        (process-send-eof process))
       (message "Copied to clipboard"))))
 
 ;; Disable startup messages (keep *Messages* for debugging)
