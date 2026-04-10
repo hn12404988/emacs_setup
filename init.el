@@ -141,8 +141,12 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
   "Copy to both kill ring and system clipboard."
   (interactive)
   (when (use-region-p)
-    (kill-ring-save (region-beginning) (region-end))
-    (copy-to-macos-clipboard)))
+    (let ((text (buffer-substring-no-properties (region-beginning) (region-end))))
+      (kill-ring-save (region-beginning) (region-end))
+      (if (display-graphic-p)
+          (shell-command-on-region (region-beginning) (region-end) "pbcopy")
+        (my/osc52-copy text))
+      (message "Copied to clipboard"))))
 
 ;; Disable startup messages (keep *Messages* for debugging)
 (setq inhibit-startup-message t)
