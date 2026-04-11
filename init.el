@@ -397,9 +397,12 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
   :after yasnippet)
 
 ;; Company mode - navigate suggestions with C-w / C-s
-(with-eval-after-load 'company
-  (define-key company-active-map (kbd "C-w") #'company-select-previous)
-  (define-key company-active-map (kbd "C-s") #'company-select-next))
+(use-package company
+  :diminish
+  :hook (after-init . global-company-mode)
+  :bind (:map company-active-map
+         ("C-w" . company-select-previous)
+         ("C-s" . company-select-next)))
 
 ;; ==========================================================================
 ;; Font settings
