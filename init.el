@@ -343,7 +343,10 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
       (kill-buffer buf-name))
     (let ((buf (get-buffer-create buf-name)))
       (with-current-buffer buf
-        (shell-command (format "script -q /dev/null sh -c 'TERM=xterm-256color COLORTERM=truecolor glow -w 0 %s'" (shell-quote-argument file)) buf)
+        (shell-command (if (eq system-type 'darwin)
+                           (format "script -q /dev/null sh -c 'TERM=xterm-256color COLORTERM=truecolor glow -w 0 %s'" (shell-quote-argument file))
+                         (format "script -q -c 'TERM=xterm-256color COLORTERM=truecolor glow -w 0 %s' /dev/null" (shell-quote-argument file)))
+                       buf)
         (insert (xterm-color-filter (delete-and-extract-region (point-min) (point-max))))
         (view-mode 1)
         (local-set-key (kbd "q") 'kill-buffer-and-window))
@@ -362,9 +365,14 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
     (with-current-buffer buf
       (let ((inhibit-read-only t))
         (erase-buffer)
-        (call-process "script" nil t nil "-q" "/dev/null"
-                      "sh" "-c" (format "TERM=dumb COLORTERM=truecolor glow -s dark -w 0 %s"
-                                        (shell-quote-argument file)))
+        (if (eq system-type 'darwin)
+            (call-process "script" nil t nil "-q" "/dev/null"
+                          "sh" "-c" (format "TERM=dumb COLORTERM=truecolor glow -s dark -w 0 %s"
+                                            (shell-quote-argument file)))
+          (call-process "script" nil t nil "-q" "-c"
+                        (format "TERM=dumb COLORTERM=truecolor glow -s dark -w 0 %s"
+                                (shell-quote-argument file))
+                        "/dev/null"))
         ;; Strip pseudo-TTY control characters before color processing
         (goto-char (point-min))
         (while (re-search-forward "[\004\010\015]" nil t)
