@@ -105,6 +105,40 @@
 (setq select-enable-clipboard t)
 (setq select-enable-primary t)
 
+;; --- Cross-platform clipboard helpers ---
+;; macOS: pbcopy/pbpaste
+;; Linux in tmux: tmux load-buffer/save-buffer (always available inside tmux)
+;; Linux with X11: xclip fallback
+
+(defun my/clipboard-copy-text (text)
+  "Copy TEXT to system clipboard (cross-platform)."
+  (cond
+   ((eq system-type 'darwin)
+    (with-temp-buffer
+      (insert text)
+      (call-process-region (point-min) (point-max) "pbcopy")))
+   ((getenv "TMUX")
+    (with-temp-buffer
+      (insert text)
+      (call-process-region (point-min) (point-max) "tmux" nil nil nil "load-buffer" "-")))
+   ((executable-find "xclip")
+    (with-temp-buffer
+      (insert text)
+      (call-process-region (point-min) (point-max) "xclip" nil nil nil "-selection" "clipboard")))))
+
+(defun my/clipboard-paste-text ()
+  "Return current system clipboard content as string (cross-platform)."
+  (string-trim-right
+   (cond
+    ((eq system-type 'darwin)
+     (shell-command-to-string "pbpaste"))
+    ((getenv "TMUX")
+     (shell-command-to-string "tmux save-buffer -"))
+    ((executable-find "xclip")
+     (shell-command-to-string "xclip -selection clipboard -o"))
+    (t ""))
+   "[\n]+"))
+
 ;; OSC 52 clipboard support (works over SSH through tmux)
 (defun my/osc52-copy (text)
   "Copy TEXT to system clipboard via OSC 52 escape sequence.
@@ -113,21 +147,10 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
    (format "\e]52;c;%s\a"
            (base64-encode-string (encode-coding-string text 'utf-8) t))))
 
-(defun copy-to-macos-clipboard ()
-  "Copy region to clipboard via pbcopy."
-  (interactive)
-  (when (use-region-p)
-    (let ((text (buffer-substring-no-properties (region-beginning) (region-end))))
-      (with-temp-buffer
-        (insert text)
-        (call-process-region (point-min) (point-max) "pbcopy")))
-    (message "Copied to clipboard")
-    (deactivate-mark)))
-
 (defun my-smart-paste ()
   "Sync system clipboard to kill-ring, then paste."
   (interactive)
-  (let ((clipboard-text (shell-command-to-string "pbpaste")))
+  (let ((clipboard-text (my/clipboard-paste-text)))
     ;; If clipboard has content and it's different from the last kill
     (when (and (not (string-empty-p clipboard-text))
                (not (string= clipboard-text (car kill-ring))))
@@ -136,16 +159,13 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
   ;; Now yank (which will use the most recent kill-ring entry)
   (yank))
 
-;; Override the C-c binding to use macOS clipboard
 (defun my-kill-ring-save ()
   "Copy to both kill ring and system clipboard."
   (interactive)
   (when (use-region-p)
     (let ((text (buffer-substring-no-properties (region-beginning) (region-end))))
       (kill-ring-save (region-beginning) (region-end))
-      (with-temp-buffer
-        (insert text)
-        (call-process-region (point-min) (point-max) "pbcopy"))
+      (my/clipboard-copy-text text)
       (message "Copied to clipboard"))))
 
 ;; Disable startup messages (keep *Messages* for debugging)
