@@ -59,7 +59,7 @@
 #   # Install Tailscale
 #   curl -fsSL https://tailscale.com/install.sh | sudo sh
 #
-#   # Install Check Point VPN — see section 8
+#   # Install Check Point VPN — see section 10
 #
 # --- macOS ---
 #
@@ -129,16 +129,82 @@
 #
 # --- SSH config on the connecting machine ---
 #
-# Add to ~/.ssh/config on your primary machine:
-#   Host m6
-#     HostName <tailscale-ip>
-#     User <username>
-#     IdentityFile ~/.ssh/id_ed25519
-#     SetEnv LC_CTYPE=en_US.UTF-8
+# See section 3 for the full client-side SSH config template.
 #
 #
 # ===========================================================================
-# 3. GHOSTTY TERMINFO (must do BEFORE first SSH from Ghostty)
+# 3. SSH CONFIG (CLIENT SIDE)
+# ===========================================================================
+#
+# When setting up a new client device (Mac mini, laptop, any external
+# machine) to connect to M6 and other services, add the following to
+# ~/.ssh/config on the client.
+#
+# The config file itself contains NO secrets — only hostnames, usernames,
+# and paths to key files. It is safe to copy between machines.
+# Private keys (id_ed25519, id_pg) must be handled separately.
+#
+#
+# --- Universal entries (all clients need these) ---
+#
+#   Host github.com
+#     HostName github.com
+#     PreferredAuthentications publickey
+#     IdentityFile ~/.ssh/id_ed25519
+#
+#   Host m6
+#     HostName 100.70.67.97
+#     User m6
+#     LocalForward 4242 localhost:4242
+#
+#
+# --- Company entries (add if this client needs corporate repos) ---
+#
+#   Host pg.github.com
+#     HostName github.com
+#     PreferredAuthentications publickey
+#     IdentityFile ~/.ssh/id_pg
+#
+#   Host git.positivegrid.com
+#     HostName git.positivegrid.com
+#     PreferredAuthentications publickey
+#     IdentityFile ~/.ssh/id_ed25519
+#
+#   Host dev2
+#     HostName 192.168.20.12
+#     User ubuntu
+#     PreferredAuthentications publickey
+#     IdentityFile ~/.ssh/id_pg
+#
+#
+# --- Machine-specific (do NOT copy) ---
+#
+#   Include /Users/willy/.colima/ssh_config    ← Mac mini only (Colima/Docker)
+#
+#
+# NOTES:
+#
+#   IdentityFile — The config references ~/.ssh/id_ed25519 and
+#   ~/.ssh/id_pg. These private keys won't exist on a new client.
+#   Best practice: generate a NEW key pair on each client:
+#     ssh-keygen -t ed25519
+#   Then add the public key to the target machines:
+#     ssh-copy-id -i ~/.ssh/id_ed25519.pub m6
+#   And to GitHub/GitLab via their web UI.
+#   This way each client has its own key — easy to revoke individually.
+#
+#   Host m6 — Uses Tailscale IP (100.70.67.97). The new client must
+#   join your Tailnet first (install Tailscale + authenticate).
+#
+#   Host dev2 — Uses LAN IP (192.168.20.12). Only reachable on the
+#   same local network. External clients cannot reach it.
+#
+#   LocalForward 4242 — Forwards M6's port 4242 to localhost:4242
+#   on the client. Useful for dev servers running on M6.
+#
+#
+# ===========================================================================
+# 4. GHOSTTY TERMINFO (must do BEFORE first SSH from Ghostty)
 # ===========================================================================
 #
 # Ghostty sets TERM=xterm-ghostty. When you SSH from a Ghostty terminal
@@ -153,7 +219,7 @@
 #
 #
 # ===========================================================================
-# 4. SHELL RC TEMPLATE
+# 5. SHELL RC TEMPLATE
 # ===========================================================================
 #
 # Copy the code block below into ~/.zshrc on the new machine.
@@ -231,7 +297,7 @@ export BIG_QUERY_RELEASED_TABLE_ID=transactions_released
 
 
 # ===========================================================================
-# 5. EMACS DAEMON + EMACSCLIENT (per-directory isolation)
+# 6. EMACS DAEMON + EMACSCLIENT (per-directory isolation)
 # ===========================================================================
 #
 # WHAT THIS SOLVES
@@ -302,7 +368,7 @@ ekillall() {
 
 export EDITOR='emacsclient -nw'
 
-# ---- Check Point VPN CLI (see section 9 for install) ----
+# ---- Check Point VPN CLI (see section 10 for install) ----
 # macOS (trac):
 #   alias pg='"/Library/Application Support/Checkpoint/Endpoint Connect/trac"'
 #   Usage: pg info / pg connect / pg disconnect
@@ -316,7 +382,7 @@ export EDITOR='emacsclient -nw'
 
 
 # ===========================================================================
-# 6. TMUX CONFIG
+# 7. TMUX CONFIG
 # ===========================================================================
 #
 # Copy .tmux.conf from this repo to ~/.tmux.conf on the new machine.
@@ -350,7 +416,7 @@ export EDITOR='emacsclient -nw'
 #
 #
 # ===========================================================================
-# 7. EMACS CONFIG
+# 8. EMACS CONFIG
 # ===========================================================================
 #
 # Copy init.el from this repo to ~/.emacs.d/init.el on the new machine.
@@ -362,7 +428,7 @@ export EDITOR='emacsclient -nw'
 #
 #
 # ===========================================================================
-# 8. AWS MFA LOGIN SCRIPT
+# 9. AWS MFA LOGIN SCRIPT
 # ===========================================================================
 #
 # Copy aws-mfa-login.sh to the new machine.
@@ -387,7 +453,7 @@ export EDITOR='emacsclient -nw'
 #
 #
 # ===========================================================================
-# 9. CHECK POINT VPN
+# 10. CHECK POINT VPN
 # ===========================================================================
 #
 # Required by the company to connect to the corporate VPN.
@@ -448,7 +514,7 @@ export EDITOR='emacsclient -nw'
 #
 #
 # ===========================================================================
-# 10. STORAGE STRATEGY (eMMC vs SSD)
+# 11. STORAGE STRATEGY (eMMC vs SSD)
 # ===========================================================================
 #
 # If the machine has both eMMC and an SSD (e.g. M.2 NVMe/SATA), split
@@ -479,30 +545,30 @@ export EDITOR='emacsclient -nw'
 #
 #
 # ===========================================================================
-# 11. QUICK SETUP CHECKLIST (new Armbian headless machine)
+# 12. QUICK SETUP CHECKLIST (new Armbian headless machine)
 # ===========================================================================
 #
 #   1.  Flash Armbian with Armbian Imager, boot, create user (section 1)
 #   2.  Move OS from SD to eMMC: sudo armbian-install (section 1)
 #   3.  Security hardening: SSH keys, firewall, Tailscale (section 2)
-#   4.  Install Ghostty terminfo (section 3):
+#   4.  Install Ghostty terminfo (section 4):
 #         infocmp -x xterm-ghostty | ssh <new-machine> tic -x -
-#   5.  If SSD present: mount as /home (section 10) BEFORE creating user data
+#   5.  If SSD present: mount as /home (section 11) BEFORE creating user data
 #   6.  Install packages: emacs-nox tmux git build-essential awscli (section 1)
-#   7.  Copy and fill in ~/.bashrc from the template (section 4 + 5)
+#   7.  Copy and fill in ~/.bashrc from the template (section 5 + 6)
 #   8.  Copy .tmux.conf — change pbcopy → copy-selection-and-cancel,
-#       add xterm-ghostty:RGB override (section 6)
-#   9.  Copy init.el to ~/.emacs.d/init.el (section 7)
-#   10. Copy SSH keys + config from primary machine (section 8)
-#   11. Copy aws-mfa-login.sh — fix sed/bashrc targets (section 8)
+#       add xterm-ghostty:RGB override (section 7)
+#   9.  Copy init.el to ~/.emacs.d/init.el (section 8)
+#   10. Set up SSH config + keys on this machine (section 3 + 9)
+#   11. Copy aws-mfa-login.sh — fix sed/bashrc targets (section 9)
 #   12. Copy ~/.aws/credentials and ~/.aws/config
-#   13. Install VPN: snx-rs for ARM64 (section 9)
+#   13. Install VPN: snx-rs for ARM64 (section 10)
 #   14. Fill in credential env vars in ~/.bashrc
 #   15. Verify: ssh m6, e, tmux copy mode, pg, awsmfa
 #
 #
 # ===========================================================================
-# 12. USAGE
+# 13. USAGE
 # ===========================================================================
 #
 # e              — Open dired in current directory (auto-starts daemon)
@@ -529,7 +595,7 @@ export EDITOR='emacsclient -nw'
 #
 #
 # ===========================================================================
-# 13. TROUBLESHOOTING
+# 14. TROUBLESHOOTING
 # ===========================================================================
 #
 # "can't find socket" error:
