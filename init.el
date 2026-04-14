@@ -422,6 +422,10 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
 
 (setq-default tab-width 4 indent-tabs-mode t)
 
+;; JSON indent level
+(setq js-indent-level 2)
+(add-hook 'json-ts-mode-hook (lambda () (setq-local tab-width 2)))
+
 ;; Autopair (not available in melpa, skip)
 ;; Using electric-pair-mode as alternative
 (electric-pair-mode 1)
