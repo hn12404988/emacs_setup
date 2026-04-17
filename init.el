@@ -364,7 +364,7 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
          ("\\.mkdn\\'" . markdown-mode)
          ("\\.mdwn\\'" . markdown-mode))
   :bind (:map markdown-mode-map
-         ("C-x m" . my/glow-render))
+         ("M-m" . my/glow-render))
   :config
   (setq markdown-command "pandoc")
   :hook (markdown-mode . visual-line-mode))
