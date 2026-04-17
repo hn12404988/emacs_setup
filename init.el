@@ -211,6 +211,8 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
   (exec-path-from-shell-initialize))
 
 (add-to-list 'auto-mode-alist '("\\.js$" . js-mode))
+(add-to-list 'auto-mode-alist '("\\.mjs\\'" . js-mode))
+(add-to-list 'auto-mode-alist '("\\.cjs\\'" . js-mode))
 
 ;; TypeScript support
 (use-package typescript-mode
