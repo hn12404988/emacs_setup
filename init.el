@@ -363,8 +363,6 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
          ("\\.mdown\\'" . markdown-mode)
          ("\\.mkdn\\'" . markdown-mode)
          ("\\.mdwn\\'" . markdown-mode))
-  :bind (:map markdown-mode-map
-         ("M-m" . my/glow-render))
   :config
   (setq markdown-command "pandoc")
   :hook (markdown-mode . visual-line-mode))
@@ -419,8 +417,12 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
     (switch-to-buffer buf)))
 
 (with-eval-after-load 'dired
+  (require 'dired-x)  ;; enables C-x C-j (dired-jump) to open Dired on current file's dir
   (setq dired-kill-when-opening-new-dired-buffer t)
   (define-key dired-mode-map (kbd "M") #'my/dired-preview-markdown-glow))
+
+;; Load dired-x at startup so C-x C-j works before any dired buffer is opened
+(require 'dired-x)
 
 (setq-default tab-width 4 indent-tabs-mode t)
 
