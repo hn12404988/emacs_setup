@@ -641,6 +641,7 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
 ;; diff-hl - git diff indicators in the fringe (like VS Code's gutter colors)
 (use-package diff-hl
   :hook ((after-init . global-diff-hl-mode)
+         (dired-mode . diff-hl-dired-mode)
          (magit-pre-refresh . diff-hl-magit-pre-refresh)
          (magit-post-refresh . diff-hl-magit-post-refresh))
   :config
