@@ -373,14 +373,15 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
   "Render current markdown file with glow in a buffer with colors."
   (interactive)
   (let* ((file (buffer-file-name))
-         (buf-name "*glow*"))
+         (buf-name "*glow*")
+         (width (max 60 (- (window-width) 2))))
     (when (get-buffer buf-name)
       (kill-buffer buf-name))
     (let ((buf (get-buffer-create buf-name)))
       (with-current-buffer buf
         (shell-command (if (eq system-type 'darwin)
-                           (format "script -q /dev/null sh -c 'TERM=xterm-256color COLORTERM=truecolor glow -w 0 %s'" (shell-quote-argument file))
-                         (format "script -q -c 'TERM=xterm-256color COLORTERM=truecolor glow -w 0 %s' /dev/null" (shell-quote-argument file)))
+                           (format "script -q /dev/null sh -c 'TERM=xterm-256color COLORTERM=truecolor glow -w %d %s'" width (shell-quote-argument file))
+                         (format "script -q -c 'TERM=xterm-256color COLORTERM=truecolor glow -w %d %s' /dev/null" width (shell-quote-argument file)))
                        buf)
         (insert (xterm-color-filter (delete-and-extract-region (point-min) (point-max))))
         (view-mode 1)
@@ -396,17 +397,18 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
   "Preview markdown file at point in dired using glow."
   (interactive)
   (let* ((file (dired-get-file-for-visit))
-         (buf (get-buffer-create "*glow-preview*")))
+         (buf (get-buffer-create "*glow-preview*"))
+         (width (max 60 (- (window-width) 2))))
     (with-current-buffer buf
       (let ((inhibit-read-only t))
         (erase-buffer)
         (if (eq system-type 'darwin)
             (call-process "script" nil t nil "-q" "/dev/null"
-                          "sh" "-c" (format "TERM=dumb COLORTERM=truecolor glow -s dark -w 0 %s"
-                                            (shell-quote-argument file)))
+                          "sh" "-c" (format "TERM=dumb COLORTERM=truecolor glow -s dark -w %d %s"
+                                            width (shell-quote-argument file)))
           (call-process "script" nil t nil "-q" "-c"
-                        (format "TERM=dumb COLORTERM=truecolor glow -s dark -w 0 %s"
-                                (shell-quote-argument file))
+                        (format "TERM=dumb COLORTERM=truecolor glow -s dark -w %d %s"
+                                width (shell-quote-argument file))
                         "/dev/null"))
         ;; Strip pseudo-TTY control characters before color processing
         (goto-char (point-min))
