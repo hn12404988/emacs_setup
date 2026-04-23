@@ -369,20 +369,20 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
   (setq markdown-command "pandoc")
   :hook (markdown-mode . visual-line-mode))
 
-(defun my/glow-render ()
-  "Render current markdown file with glow in a buffer with colors."
+(defun my/mdcat-render ()
+  "Render current markdown file with mdcat in a buffer with colors."
   (interactive)
   (let* ((file (buffer-file-name))
-         (buf-name "*glow*")
+         (buf-name "*mdcat*")
          (width (max 60 (- (window-width) 2))))
     (when (get-buffer buf-name)
       (kill-buffer buf-name))
     (let ((buf (get-buffer-create buf-name)))
       (with-current-buffer buf
-        (shell-command (if (eq system-type 'darwin)
-                           (format "script -q /dev/null sh -c 'TERM=xterm-256color COLORTERM=truecolor glow -w %d %s'" width (shell-quote-argument file))
-                         (format "script -q -c 'TERM=xterm-256color COLORTERM=truecolor glow -w %d %s' /dev/null" width (shell-quote-argument file)))
-                       buf)
+        (call-process "mdcat" nil buf nil
+                      "--ansi" "--local"
+                      "--columns" (number-to-string width)
+                      file)
         (insert (xterm-color-filter (delete-and-extract-region (point-min) (point-max))))
         (view-mode 1)
         (local-set-key (kbd "q") 'kill-buffer-and-window))
@@ -393,37 +393,28 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
             (lambda (orig-fun &optional kill window)
               (funcall orig-fun t window)))
 
-(defun my/dired-preview-markdown-glow ()
-  "Preview markdown file at point in dired using glow."
+(defun my/dired-preview-markdown-mdcat ()
+  "Preview markdown file at point in dired using mdcat."
   (interactive)
   (let* ((file (dired-get-file-for-visit))
-         (buf (get-buffer-create "*glow-preview*"))
+         (buf (get-buffer-create "*mdcat-preview*"))
          (width (max 60 (- (window-width) 2))))
     (with-current-buffer buf
       (let ((inhibit-read-only t))
         (erase-buffer)
-        (if (eq system-type 'darwin)
-            (call-process "script" nil t nil "-q" "/dev/null"
-                          "sh" "-c" (format "TERM=dumb COLORTERM=truecolor glow -s dark -w %d %s"
-                                            width (shell-quote-argument file)))
-          (call-process "script" nil t nil "-q" "-c"
-                        (format "TERM=dumb COLORTERM=truecolor glow -s dark -w %d %s"
-                                width (shell-quote-argument file))
-                        "/dev/null"))
-        ;; Strip pseudo-TTY control characters before color processing
-        (goto-char (point-min))
-        (while (re-search-forward "[\004\010\015]" nil t)
-          (replace-match ""))
+        (call-process "mdcat" nil t nil
+                      "--ansi" "--local"
+                      "--columns" (number-to-string width)
+                      file)
         (insert (xterm-color-filter (delete-and-extract-region (point-min) (point-max))))
         (goto-char (point-min)))
-      (special-mode)
-      )
+      (special-mode))
     (switch-to-buffer buf)))
 
 (with-eval-after-load 'dired
   (require 'dired-x)  ;; enables C-x C-j (dired-jump) to open Dired on current file's dir
   (setq dired-kill-when-opening-new-dired-buffer t)
-  (define-key dired-mode-map (kbd "M") #'my/dired-preview-markdown-glow))
+  (define-key dired-mode-map (kbd "M") #'my/dired-preview-markdown-mdcat))
 
 ;; Load dired-x at startup so C-x C-j works before any dired buffer is opened
 (require 'dired-x)
