@@ -335,6 +335,27 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
                (window-width . 0.3)
                (slot . 0)))
 
+;; Display grep results (projectile-grep / C-M-f) on the right side
+(add-to-list 'display-buffer-alist
+             '("\\*grep\\*"
+               (display-buffer-in-side-window)
+               (side . right)
+               (window-width . 0.4)
+               (slot . 1)))
+
+;; When jumping from a grep result (RET / mouse-2), reuse the existing
+;; main window instead of splitting it. The default compilation path
+;; binds `pop-up-windows' to t when the *grep* window is selected, which
+;; causes a split — we override the display action to prefer reuse.
+(defun my/compilation-goto-locus-reuse-window (orig-fn &rest args)
+  (let ((display-buffer-overriding-action
+         '((display-buffer-reuse-window
+            display-buffer-use-some-window)
+           (inhibit-same-window . t))))
+    (apply orig-fn args)))
+(advice-add 'compilation-goto-locus :around
+            #'my/compilation-goto-locus-reuse-window)
+
 (defun my/toggle-flycheck-errors ()
   "Toggle the flycheck errors sidebar."
   (interactive)
