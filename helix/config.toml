@@ -1,0 +1,36 @@
+# Emacs-style bindings in insert mode (mirrors init.el my-keys-minor-mode-map).
+# Normal/select mode left at Helix defaults.
+
+[keys.insert]
+# Movement
+"C-d" = "move_char_right"
+"C-a" = "move_char_left"
+"C-w" = "move_line_up"
+"C-s" = "move_line_down"
+"C-q" = "goto_first_nonwhitespace"
+"C-e" = "goto_line_end"
+
+# Word movement
+"A-d" = "move_next_word_start"
+"A-a" = "move_prev_word_start"
+
+# Buffer start/end
+"A-9" = "goto_file_start"
+"A-0" = "goto_file_end"
+
+# Page up/down
+"A-s" = "page_down"
+"A-w" = "page_up"
+
+# Deletion
+"A-q" = "delete_char_backward"
+"A-e" = "delete_char_forward"
+"A-backspace" = "delete_word_backward"
+"C-h" = "delete_word_backward"          # terminal sends C-h for Ctrl-Backspace
+
+# Kill whole line (replaces C-k)
+"C-k" = ["extend_to_line_bounds", "delete_selection", "insert_mode"]
+
+# Clipboard
+"C-c" = "yank_main_selection_to_clipboard"
+"C-v" = "paste_clipboard_before"
