@@ -610,10 +610,6 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
 (define-key my-keys-minor-mode-map (kbd "C-h") 'smart-backward-kill)
 ;; Try M-DEL as an alternative (Meta/Alt + backspace)
 (define-key my-keys-minor-mode-map (kbd "M-DEL") 'backward-kill-word)
-;; In terminal, Ctrl+Backspace sends C-h (the help prefix), so rebind it.
-;; Help remains accessible via F1.
-(unless (display-graphic-p)
-  (define-key my-keys-minor-mode-map (kbd "C-h") 'backward-kill-word))
 (define-key my-keys-minor-mode-map (kbd "M-9") 'beginning-of-buffer)
 (define-key my-keys-minor-mode-map (kbd "M-0") 'end-of-buffer)
 (define-key my-keys-minor-mode-map (kbd "C-M-s") 'next-buffer)
