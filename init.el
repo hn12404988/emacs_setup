@@ -343,6 +343,14 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
                (window-width . 0.4)
                (slot . 1)))
 
+;; Display workspace-wide LSP diagnostics panels on the right side
+(add-to-list 'display-buffer-alist
+             '("\\*lsp-\\(errors\\|warnings\\|infos\\)\\*"
+               (display-buffer-in-side-window)
+               (side . right)
+               (window-width . 0.4)
+               (slot . 1)))
+
 ;; When jumping from a grep result (RET / mouse-2), reuse the existing
 ;; main window instead of splitting it. The default compilation path
 ;; binds `pop-up-windows' to t when the *grep* window is selected, which
@@ -364,6 +372,58 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
         (delete-window win)
       (flycheck-list-errors)
       (other-window 1))))
+
+(defconst my/lsp-severity-labels
+  '((1 . ("errors"   . "*lsp-errors*"))
+    (2 . ("warnings" . "*lsp-warnings*"))
+    (3 . ("infos"    . "*lsp-infos*")))
+  "Map LSP severity (1=Error, 2=Warning, 3=Information) to label and buffer name.")
+
+(defun my/list-workspace-diagnostics (severity)
+  "Collect all LSP diagnostics matching SEVERITY across the workspace."
+  (require 'lsp-mode)
+  (require 'grep)
+  (let* ((entry (cdr (assq severity my/lsp-severity-labels)))
+         (label (car entry))
+         (buf-name (cdr entry))
+         (diags (lsp-diagnostics t))
+         (buf (get-buffer-create buf-name))
+         (count 0))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (maphash
+         (lambda (file diagnostics)
+           (dolist (d diagnostics)
+             (when (eq (lsp-get d :severity) severity)
+               (let* ((range (lsp-get d :range))
+                      (start (lsp-get range :start))
+                      (line (1+ (lsp-get start :line)))
+                      (col (1+ (lsp-get start :character)))
+                      (msg (lsp-get d :message)))
+                 (insert (format "%s:%d:%d: %s\n" file line col msg))
+                 (cl-incf count)))))
+         diags)
+        (when (zerop count)
+          (insert (format "No workspace %s.\n" label)))
+        (goto-char (point-min))
+        (grep-mode))
+      (setq header-line-format (format "LSP %s: %d" label count)))
+    (display-buffer buf)
+    (when-let ((win (get-buffer-window buf)))
+      (select-window win))))
+
+(defun my/toggle-lsp-diagnostics (severity)
+  "Toggle workspace-wide LSP diagnostics panel for SEVERITY."
+  (let* ((buf-name (cddr (assq severity my/lsp-severity-labels)))
+         (win (get-buffer-window buf-name)))
+    (if win
+        (delete-window win)
+      (my/list-workspace-diagnostics severity))))
+
+(defun my/toggle-lsp-errors ()   (interactive) (my/toggle-lsp-diagnostics 1))
+(defun my/toggle-lsp-warnings () (interactive) (my/toggle-lsp-diagnostics 2))
+(defun my/toggle-lsp-infos ()    (interactive) (my/toggle-lsp-diagnostics 3))
 
 ;; Python LSP via Pyright (find references, go-to-definition, etc.)
 (use-package lsp-pyright
@@ -627,6 +687,10 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
 (define-key my-keys-minor-mode-map (kbd "C-k") 'kill-whole-line)
 ;; Toggle flycheck errors sidebar
 (define-key my-keys-minor-mode-map (kbd "M-1") 'my/toggle-flycheck-errors)
+;; Toggle workspace-wide LSP diagnostics panels by severity
+(define-key my-keys-minor-mode-map (kbd "M-2") 'my/toggle-lsp-errors)    ;; severity 1
+(define-key my-keys-minor-mode-map (kbd "M-3") 'my/toggle-lsp-warnings)  ;; severity 2
+(define-key my-keys-minor-mode-map (kbd "M-4") 'my/toggle-lsp-infos)     ;; severity 3
 ;; Window resize - smart split line movement
 (defun my/shrink-window-smart ()
   "Move split line left (side-by-side) or up (stacked)."
