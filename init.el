@@ -345,7 +345,7 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
 
 ;; Display workspace-wide LSP diagnostics panels on the right side
 (add-to-list 'display-buffer-alist
-             '("\\*lsp-\\(errors\\|warnings\\|infos\\)\\*"
+             '("\\*lsp-\\(errors\\|warnings\\|hints\\)\\*"
                (display-buffer-in-side-window)
                (side . right)
                (window-width . 0.4)
@@ -373,19 +373,22 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
       (flycheck-list-errors)
       (other-window 1))))
 
-(defconst my/lsp-severity-labels
-  '((1 . ("errors"   . "*lsp-errors*"))
-    (2 . ("warnings" . "*lsp-warnings*"))
-    (3 . ("infos"    . "*lsp-infos*")))
-  "Map LSP severity (1=Error, 2=Warning, 3=Information) to label and buffer name.")
+(defconst my/lsp-diagnostic-panels
+  '((errors   . ("*lsp-errors*"   "errors"   (1)))
+    (warnings . ("*lsp-warnings*" "warnings" (2)))
+    (hints    . ("*lsp-hints*"    "hints"    (3 4))))
+  "Map panel key to (buffer-name label severities).
+LSP severities: 1=Error, 2=Warning, 3=Information, 4=Hint.
+The `hints' panel covers Info+Hint to match lsp-modeline's third counter.")
 
-(defun my/list-workspace-diagnostics (severity)
-  "Collect all LSP diagnostics matching SEVERITY across the workspace."
+(defun my/list-workspace-diagnostics (panel)
+  "Collect LSP diagnostics for PANEL into a side-window buffer."
   (require 'lsp-mode)
   (require 'grep)
-  (let* ((entry (cdr (assq severity my/lsp-severity-labels)))
-         (label (car entry))
-         (buf-name (cdr entry))
+  (let* ((spec (cdr (assq panel my/lsp-diagnostic-panels)))
+         (buf-name (nth 0 spec))
+         (label (nth 1 spec))
+         (severities (nth 2 spec))
          (diags (lsp-diagnostics t))
          (buf (get-buffer-create buf-name))
          (count 0))
@@ -395,7 +398,7 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
         (maphash
          (lambda (file diagnostics)
            (dolist (d diagnostics)
-             (when (eq (lsp-get d :severity) severity)
+             (when (memq (lsp-get d :severity) severities)
                (let* ((range (lsp-get d :range))
                       (start (lsp-get range :start))
                       (line (1+ (lsp-get start :line)))
@@ -413,17 +416,17 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
     (when-let ((win (get-buffer-window buf)))
       (select-window win))))
 
-(defun my/toggle-lsp-diagnostics (severity)
-  "Toggle workspace-wide LSP diagnostics panel for SEVERITY."
-  (let* ((buf-name (cddr (assq severity my/lsp-severity-labels)))
+(defun my/toggle-lsp-diagnostics (panel)
+  "Toggle workspace-wide LSP diagnostics panel for PANEL."
+  (let* ((buf-name (car (cdr (assq panel my/lsp-diagnostic-panels))))
          (win (get-buffer-window buf-name)))
     (if win
         (delete-window win)
-      (my/list-workspace-diagnostics severity))))
+      (my/list-workspace-diagnostics panel))))
 
-(defun my/toggle-lsp-errors ()   (interactive) (my/toggle-lsp-diagnostics 1))
-(defun my/toggle-lsp-warnings () (interactive) (my/toggle-lsp-diagnostics 2))
-(defun my/toggle-lsp-infos ()    (interactive) (my/toggle-lsp-diagnostics 3))
+(defun my/toggle-lsp-errors ()   (interactive) (my/toggle-lsp-diagnostics 'errors))
+(defun my/toggle-lsp-warnings () (interactive) (my/toggle-lsp-diagnostics 'warnings))
+(defun my/toggle-lsp-hints ()    (interactive) (my/toggle-lsp-diagnostics 'hints))
 
 ;; Python LSP via Pyright (find references, go-to-definition, etc.)
 (use-package lsp-pyright
@@ -690,7 +693,7 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
 ;; Toggle workspace-wide LSP diagnostics panels by severity
 (define-key my-keys-minor-mode-map (kbd "M-2") 'my/toggle-lsp-errors)    ;; severity 1
 (define-key my-keys-minor-mode-map (kbd "M-3") 'my/toggle-lsp-warnings)  ;; severity 2
-(define-key my-keys-minor-mode-map (kbd "M-4") 'my/toggle-lsp-infos)     ;; severity 3
+(define-key my-keys-minor-mode-map (kbd "M-4") 'my/toggle-lsp-hints)     ;; severity 3+4 (Info+Hint)
 ;; Window resize - smart split line movement
 (defun my/shrink-window-smart ()
   "Move split line left (side-by-side) or up (stacked)."
