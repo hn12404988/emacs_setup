@@ -615,18 +615,18 @@ The `hints' panel covers Info+Hint to match lsp-modeline's third counter.")
      (goto-char (point-min)))))
 
 (defun my/backward-kill-word-or-indent ()
-  "Kill the previous word, but never cross more than one boundary.
-If only whitespace lies between point and beginning of line, kill
-that whitespace and stop. If already at beginning of line, just
-delete the newline (joining with previous line). Otherwise, kill
-the previous word."
+  "Kill the previous word, but never cross the line's beginning.
+If `backward-kill-word' would cross the current line's beginning,
+only kill back to column 0. If point is already at beginning of
+line, just delete the newline (joining with previous line)."
   (interactive)
   (cond
    ((bobp) nil)
    ((bolp) (delete-char -1))
-   ((save-excursion (skip-chars-backward " \t") (bolp))
-    (kill-line 0))
-   (t (backward-kill-word 1))))
+   (t
+    (let ((target (save-excursion (backward-word 1) (point)))
+          (bol (line-beginning-position)))
+      (kill-region (max target bol) (point))))))
 
 ;; Kill current buffer without prompting
 (defun kill-current-buffer ()
