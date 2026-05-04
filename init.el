@@ -22,6 +22,19 @@
 (setq warning-suppress-log-types '((comp) (bytecomp) (tramp)))
 (setq warning-suppress-types '((comp) (bytecomp) (tramp)))
 
+;; --- Performance tuning (TTY + LSP on slower SoCs like rk3588) ---
+;; Default gc-cons-threshold (800KB) triggers GC every few keystrokes once LSP
+;; is running. Use a high value during startup, then settle at runtime.
+(setq gc-cons-threshold (* 256 1024 1024))
+(add-hook 'emacs-startup-hook
+          (lambda ()
+            (setq gc-cons-threshold (* 100 1024 1024))
+            (setq gc-cons-percentage 0.1)))
+
+;; LSP servers (rust-analyzer, ts-ls) send large JSON-RPC chunks.
+;; Default 4KB read buffer causes throughput stalls. Bump to 1MB.
+(setq read-process-output-max (* 1024 1024))
+
 ;; Disable backup files (the ones ending with ~)
 (setq make-backup-files nil)
 
@@ -318,7 +331,11 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
 (use-package lsp-ui
   :commands lsp-ui-mode
   :config
-  (setq lsp-ui-doc-enable t)
+  ;; Auto-popup on cursor stop is expensive in TTY; invoke on demand instead
+  ;; via M-x lsp-ui-doc-show / lsp-ui-doc-glance.
+  (setq lsp-ui-doc-enable nil)
+  (setq lsp-ui-doc-show-with-cursor nil)
+  (setq lsp-ui-doc-show-with-mouse nil)
   (setq lsp-ui-doc-position 'at-point)
   (setq lsp-ui-sideline-enable nil))
 
