@@ -597,27 +597,19 @@ The `hints' panel covers Info+Hint to match lsp-modeline's third counter.")
      ;; We're already at the top, move cursor to beginning
      (goto-char (point-min)))))
 
-;; Smart backward kill: word -> line start -> backspace
-(defun smart-backward-kill ()
-  "Smart backward kill with three behaviors:
-1. If there's a word to the left, kill the word (backward-kill-word)
-2. If at the start of text (only whitespace to left), kill to line start (column 0)
-3. If already at column 0, act like backspace (join with previous line)"
+(defun my/backward-kill-word-or-indent ()
+  "Kill the previous word, but never cross more than one boundary.
+If only whitespace lies between point and beginning of line, kill
+that whitespace and stop. If already at beginning of line, just
+delete the newline (joining with previous line). Otherwise, kill
+the previous word."
   (interactive)
   (cond
-   ;; At column 0: act like backspace
-   ((zerop (current-column))
-    (if (bobp)
-        (message "Beginning of buffer")
-      (delete-backward-char 1)))
-   ;; Only whitespace to the left: kill to line start
-   ((save-excursion
-      (skip-chars-backward " \t")
-      (bolp))
+   ((bobp) nil)
+   ((bolp) (delete-char -1))
+   ((save-excursion (skip-chars-backward " \t") (bolp))
     (kill-line 0))
-   ;; Otherwise: kill word
-   (t
-    (backward-kill-word 1))))
+   (t (backward-kill-word 1))))
 
 ;; Kill current buffer without prompting
 (defun kill-current-buffer ()
@@ -716,13 +708,10 @@ The `hints' panel covers Info+Hint to match lsp-modeline's third counter.")
 (define-key my-keys-minor-mode-map (kbd "M-a") 'backward-word)
 (define-key my-keys-minor-mode-map (kbd "M-q") 'delete-backward-char)
 (define-key my-keys-minor-mode-map (kbd "M-e") 'delete-forward-char)
-;; Multiple bindings for C-backspace with smart behavior
-(define-key my-keys-minor-mode-map (kbd "C-DEL") 'smart-backward-kill)
-(define-key my-keys-minor-mode-map (kbd "<C-backspace>") 'smart-backward-kill)
-(define-key my-keys-minor-mode-map [C-backspace] 'smart-backward-kill)
-(global-set-key (kbd "<C-backspace>") 'smart-backward-kill)
-;; Try M-DEL as an alternative (Meta/Alt + backspace)
-(define-key my-keys-minor-mode-map (kbd "M-DEL") 'backward-kill-word)
+;; M-DEL (Meta/Alt + Backspace) kills the previous word, but never
+;; crosses the newline before point: if only whitespace precedes
+;; point on the current line, just kill the indentation.
+(define-key my-keys-minor-mode-map (kbd "M-DEL") 'my/backward-kill-word-or-indent)
 (define-key my-keys-minor-mode-map (kbd "M-9") 'beginning-of-buffer)
 (define-key my-keys-minor-mode-map (kbd "M-0") 'end-of-buffer)
 (define-key my-keys-minor-mode-map (kbd "C-M-s") 'next-buffer)
