@@ -87,8 +87,8 @@
 ;;ido
 (ido-mode 1)
 (setq ido-default-buffer-method 'selected-window)
-;; Hide *special* buffers from C-x b
-(setq ido-ignore-buffers '("\\` " "\\`\\*.*\\*\\'"))
+;; Hide *special* buffers from C-x b (anything starting with " " or "*")
+(setq ido-ignore-buffers '("\\` " "\\`\\*"))
 
 ;; Mac-specific settings - use Option as Meta in terminal
 (when (eq system-type 'darwin)
@@ -509,6 +509,53 @@ The `hints' panel covers Info+Hint to match lsp-modeline's third counter.")
 (setq js-indent-level 2)
 (add-hook 'json-ts-mode-hook (lambda () (setq-local tab-width 2)))
 
+;; Toggle indentation style globally (M-i).
+;; Flips between "2 spaces" and "1 tab displayed as 4 spaces" for every buffer
+;; (existing and future). Only affects future indent commands and how TAB chars
+;; display; use M-x tabify / untabify to rewrite what's already in a buffer.
+(defvar my/indent-step-vars
+  '(c-basic-offset
+    js-indent-level js-jsx-indent-level
+    typescript-indent-level
+    typescript-ts-mode-indent-offset tsx-ts-mode-indent-offset
+    js-ts-mode-indent-offset
+    python-indent-offset py-indent-offset
+    css-indent-offset
+    web-mode-code-indent-offset web-mode-markup-indent-offset
+    web-mode-css-indent-offset web-mode-attr-indent-offset
+    sh-basic-offset sh-indentation
+    lua-indent-level
+    rust-indent-offset rust-ts-mode-indent-offset
+    go-ts-mode-indent-offset
+    ruby-indent-level
+    sgml-basic-offset)
+  "Mode-specific indent-step variables set by `my/toggle-indent-style'.")
+
+(defun my/apply-indent-style-globally (use-tabs width)
+  "Set indent style as the new global default and update existing buffers."
+  (setq-default indent-tabs-mode use-tabs)
+  (setq-default tab-width width)
+  (dolist (v my/indent-step-vars)
+    (when (boundp v) (set-default v width)))
+  (dolist (buf (buffer-list))
+    (with-current-buffer buf
+      (when (local-variable-p 'indent-tabs-mode)
+        (setq indent-tabs-mode use-tabs))
+      (when (local-variable-p 'tab-width)
+        (setq tab-width width))
+      (dolist (v my/indent-step-vars)
+        (when (and (boundp v) (local-variable-p v))
+          (set v width))))))
+
+(defun my/toggle-indent-style ()
+  "Toggle global indent style: 2 spaces <-> 1 tab (4 wide). Affects all buffers."
+  (interactive)
+  (if (default-value 'indent-tabs-mode)
+      (progn (my/apply-indent-style-globally nil 2)
+             (message "Indent: 2 spaces (global)"))
+    (my/apply-indent-style-globally t 4)
+    (message "Indent: tabs (width 4) (global)")))
+
 ;; Autopair (not available in melpa, skip)
 ;; Using electric-pair-mode as alternative
 (electric-pair-mode 1)
@@ -630,12 +677,18 @@ The `hints' panel covers Info+Hint to match lsp-modeline's third counter.")
 (global-set-key (kbd "C-x C-b") 'ibuffer)
 (setq ibuffer-saved-filter-groups
       '(("default"
-         ("User" (not name . "\\`\\*.*\\*\\'")))))
+         ("User" (not name . "\\`\\*")))))
 (add-hook 'ibuffer-mode-hook
           (lambda ()
             (ibuffer-switch-to-saved-filter-groups "default")
             ;; Collapse the [Default] group (the *special* buffers)
             (setq ibuffer-hidden-filter-groups '("Default"))))
+
+;; Skip *special* and " hidden" buffers when cycling with next-buffer /
+;; previous-buffer (bound to C-M-s / C-M-w below).
+(setq switch-to-prev-buffer-skip
+      (lambda (_window buffer _bury-or-kill)
+        (string-match-p "\\`[* ]" (buffer-name buffer))))
 
 ;; Line numbers
 (if (version<= "26.0.50" emacs-version)
@@ -668,9 +721,6 @@ The `hints' panel covers Info+Hint to match lsp-modeline's third counter.")
 (define-key my-keys-minor-mode-map (kbd "<C-backspace>") 'smart-backward-kill)
 (define-key my-keys-minor-mode-map [C-backspace] 'smart-backward-kill)
 (global-set-key (kbd "<C-backspace>") 'smart-backward-kill)
-;; In terminals, C-backspace sends C-h (ASCII 8), so bind that too
-;; Help is still available via F1
-(define-key my-keys-minor-mode-map (kbd "C-h") 'smart-backward-kill)
 ;; Try M-DEL as an alternative (Meta/Alt + backspace)
 (define-key my-keys-minor-mode-map (kbd "M-DEL") 'backward-kill-word)
 (define-key my-keys-minor-mode-map (kbd "M-9") 'beginning-of-buffer)
@@ -694,6 +744,8 @@ The `hints' panel covers Info+Hint to match lsp-modeline's third counter.")
 (define-key my-keys-minor-mode-map (kbd "M-2") 'my/toggle-lsp-errors)    ;; severity 1
 (define-key my-keys-minor-mode-map (kbd "M-3") 'my/toggle-lsp-warnings)  ;; severity 2
 (define-key my-keys-minor-mode-map (kbd "M-4") 'my/toggle-lsp-hints)     ;; severity 3+4 (Info+Hint)
+;; Toggle indent style (2 spaces <-> 1 tab/4 wide) in current buffer
+(define-key my-keys-minor-mode-map (kbd "M-i") 'my/toggle-indent-style)
 ;; Window resize - smart split line movement
 (defun my/shrink-window-smart ()
   "Move split line left (side-by-side) or up (stacked)."
@@ -719,7 +771,17 @@ The `hints' panel covers Info+Hint to match lsp-modeline's third counter.")
               ("C-x g" . magit-status))
   :hook ((magit-mode . visual-line-mode))
   :custom
-  (magit-display-buffer-function #'magit-display-buffer-fullframe-status-v1))
+  (magit-display-buffer-function #'magit-display-buffer-fullframe-status-v1)
+  :config
+  ;; Magit attaches section keymaps via text properties, which outrank
+  ;; emulation-mode-map-alists. Strip C-c in magit maps so the global
+  ;; C-c → my-kill-ring-save wins inside magit buffers/sections.
+  (dolist (map-sym '(magit-mode-map magit-section-mode-map
+                     magit-status-mode-map magit-revision-mode-map
+                     magit-diff-mode-map magit-log-mode-map
+                     magit-file-section-map magit-hunk-section-map))
+    (when (boundp map-sym)
+      (define-key (symbol-value map-sym) (kbd "C-c") nil))))
 
 ;; diff-hl - git diff indicators in the fringe (like VS Code's gutter colors)
 (use-package diff-hl
