@@ -1,8 +1,6 @@
 {
   "$schema": "https://opencode.ai/tui.json",
   "keybinds": {
-    "messages_line_up": "ctrl+w",
-    "messages_line_down": "ctrl+s",
     "messages_page_up": "alt+w",
     "messages_page_down": "alt+s",
     "messages_first": "alt+9",
