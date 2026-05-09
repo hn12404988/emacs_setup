@@ -588,13 +588,14 @@ The `hints' panel covers Info+Hint to match lsp-modeline's third counter.")
 (use-package yasnippet-snippets
   :after yasnippet)
 
-;; Company mode - navigate suggestions with C-w / C-s
-(use-package company
-  :diminish
-  :hook (after-init . global-company-mode)
-  :bind (:map company-active-map
-         ("C-w" . company-select-previous)
-         ("C-s" . company-select-next)))
+;; Company mode disabled — inline ghost text (inline-suggestion-mode) replaces it.
+;; LSP completions are still reachable on demand via C-M-i (completion-at-point).
+;; (use-package company
+;;   :diminish
+;;   :hook (after-init . global-company-mode)
+;;   :bind (:map company-active-map
+;;          ("C-w" . company-select-previous)
+;;          ("C-s" . company-select-next)))
 
 ;; ==========================================================================
 ;; Font settings
@@ -902,17 +903,25 @@ line, just delete the newline (joining with previous line)."
   :hook (vterm-mode . (lambda () (display-line-numbers-mode -1))))
 
 
-;; Inline ghost text suggestions (Cursor-style, via local llama.cpp FIM)
-;; Disabled - not needed; also prevents LLM server from starting on Emacs launch
-;; (use-package inline-suggestion
-;;   :straight nil
-;;   :diminish
-;;   :load-path "~/.emacs.d/straight/repos/emacs_setup/inline-suggestion"
-;;   :init
-;;   ;; Clone/update from GitHub via straight (the whole repo)
-;;   (straight-use-package
-;;    '(emacs_setup :host github :repo "hn12404988/emacs_setup" :no-build t))
-;;   :bind (:map my-keys-minor-mode-map
-;;          ("M-i" . inline-suggestion-toggle))
-;;   :hook ((prog-mode . inline-suggestion-mode)
-;;          (text-mode . inline-suggestion-mode)))
+;; Inline ghost text suggestions (Cursor-style, FIM via local rkllm shim).
+;; Backend: server.py in /home/m6/willy/local-llm/ — start with ./start.sh.
+;; The plugin source lives in this same repo, loaded directly (no straight clone).
+(use-package inline-suggestion
+  :straight nil
+  :diminish
+  :load-path "~/willy/emacs_setup/inline-suggestion"
+  :init
+  ;; We run the rkllm shim manually; do not let the plugin try to start
+  ;; llama-server. Point at our /infill endpoint and lower the token cap
+  ;; to keep ghost text snappy on the NPU (~15 tok/s decode).
+  (setq inline-suggestion-server-autostart nil)
+  (setq inline-suggestion-server-url "http://localhost:8080")
+  (setq inline-suggestion-max-tokens 10)
+  ;; NPU decode is ~15 tok/s, not GPU-fast. Wait until you actually pause
+  ;; before firing a request — the default 0.05s cancels every request
+  ;; on the next keystroke and you never see ghost text.
+  (setq inline-suggestion-idle-delay 0.5)
+  :bind (:map my-keys-minor-mode-map
+         ("M-i" . inline-suggestion-toggle))
+  :hook ((prog-mode . inline-suggestion-mode)
+         (text-mode . inline-suggestion-mode)))
