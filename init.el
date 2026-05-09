@@ -821,6 +821,11 @@ line, just delete the newline (joining with previous line)."
 
 ;; Global key settings
 (global-set-key (kbd "C-x C-s") (kbd "C-u C-x s"))
+
+;; Free M-{ and M-} so tmux can use them for pane resize at root level.
+;; (Emacs defaults: backward-paragraph / forward-paragraph — no longer used.)
+(global-unset-key (kbd "M-{"))
+(global-unset-key (kbd "M-}"))
 ;; Scroll page up/down now uses Option+s/w (M-s/M-w) defined above
 ;; (global-set-key (kbd "s-s") (kbd "C-u 1 M-s"))  ; Command+s removed
 ;; (global-set-key (kbd "s-w") (kbd "C-u 1 M-w"))  ; Command+w removed
