@@ -1,9 +1,9 @@
 ---
 name: bounce
-description: Hand off the current work to a fresh coding-agent session in a new tmux window, preserving full context via a /tmp dump file. Agent-agnostic — works with either `claude` or `opencode`. Manual-only, triggered when the current session has grown too large but the work must continue. Takes an optional heads-up message from the user.
+description: Hand off the current work to a fresh coding-agent session in a new tmux window, preserving full context via a /tmp dump file. Agent-agnostic — works with either `claude` or `opencode`. Manual-only, triggered when the current session has grown too large but the work must continue. Takes an optional heads-up message from the user, and an optional `--cwd <path>` to start the new window in a different directory.
 disable-model-invocation: true
 user-invocable: true
-argument-hint: <free-form message from user>
+argument-hint: [--cwd <path>] <free-form message from user>
 ---
 
 # /bounce — Hand off work to a fresh agent session in a new tmux window
@@ -22,6 +22,7 @@ This skill **takes action**: it creates a tmux window, writes a file to `/tmp`, 
 - **Manual only.** Do not invoke this skill on your own. It is `user-invocable: true` for a reason — only run when the user types `/bounce`.
 - **Agent choice is asked, not assumed.** Use `AskUserQuestion` to let the user pick `claude` or `opencode`. Do not pick on the user's behalf, even if you can guess.
 - **Stop on tmux errors.** If `tmux new-window` fails for any reason, stop and report the exact tmux error message. Do not write the dump file in that case — there is no destination to bounce to.
+- **Validate `--cwd` before any side effect.** If the user passes `--cwd <path>` but the resolved path does not exist or is not a directory, stop and report the resolved path. Do not ask which agent to launch, do not create a window, do not write a dump. Fail fast so no state is left behind.
 - **The dump file is the source of truth.** The prompt sent to the new window must be short. All real context lives in `/tmp/bounce-<id>.md`. Do not duplicate the dump's content in the prompt.
 - **Language mirroring.** The dump's prose language mirrors the user's heads-up message language. If the heads-up is empty, write the dump in English. Identifiers, paths, file names, commands, and code stay verbatim regardless.
 
@@ -31,33 +32,52 @@ This skill **takes action**: it creates a tmux window, writes a file to `/tmp`, 
 
 Check `$TMUX`. If empty, stop and tell the user. Do nothing else.
 
-### 2. Ask which agent to launch
+### 2. Parse arguments
+
+The argument string passed to `/bounce` is split into an optional `--cwd <path>` and the heads-up message (everything else, verbatim).
+
+- If the first whitespace-separated token is exactly `--cwd`, the next token is `<path>` and the remainder is the heads-up message. The heads-up may be empty.
+- Otherwise, no `--cwd` was given. The entire argument string is the heads-up message (may be empty).
+
+If `--cwd` was given, resolve `<path>` to an absolute path:
+
+- Absolute paths (starting with `/`) are used as-is.
+- `~` and `~/…` are expanded against `$HOME`.
+- Relative paths are resolved against the **current pane's directory** (`tmux display-message -p '#{pane_current_path}'`), **not** against your own `pwd`. The current pane is what the user sees; your `pwd` may be different.
+
+Then verify the resolved path exists and is a directory (`[ -d "$resolved" ]`). If not, stop. Report the exact resolved path and say no window was created and no dump was written.
+
+Call the results `<target-dir>` and `<user-message>`. If no `--cwd` was given, `<target-dir>` is filled in by step 4 (from the current pane's path).
+
+### 3. Ask which agent to launch
 
 Use `AskUserQuestion` with exactly two options: `claude` and `opencode`. Do not add a third option, do not default. Whatever the user picks becomes `<AGENT_CMD>` in the steps below.
 
-### 3. Read the current tmux coordinates
+### 4. Read the current tmux coordinates
 
 - Current session: `tmux display-message -p '#S'`
 - Current window: `tmux display-message -p '#W'`
 - Current pane path: `tmux display-message -p '#{pane_current_path}'`
 
+If `--cwd` was **not** given in step 2, set `<target-dir>` to the current pane path. If `--cwd` was given, keep the `<target-dir>` already resolved in step 2.
+
 Compute the new window name: `<current-window>-bounce`. If a window with that exact name already exists in the session (`tmux list-windows -t <session>`), append `-2`, then `-3`, etc., until the name is free.
 
-### 4. Create the new window
+### 5. Create the new window
 
 Run:
 
 ```
-tmux new-window -d -t <session>: -n <new-window-name> -c <pane_current_path> '<AGENT_CMD>'
+tmux new-window -d -t <session>: -n <new-window-name> -c <target-dir> '<AGENT_CMD>'
 ```
 
 - `-d` keeps focus in the current window so the user can read the bounce confirmation here.
-- `-c <pane_current_path>` makes the new window start in the same directory as the current pane.
-- The trailing `'<AGENT_CMD>'` is whichever agent the user picked in step 2 (`claude` or `opencode`).
+- `-c <target-dir>` makes the new window start in the directory chosen in step 2 — the current pane's directory by default, or the `--cwd` path if the user passed one.
+- The trailing `'<AGENT_CMD>'` is whichever agent the user picked in step 3 (`claude` or `opencode`).
 
 If this command fails (non-zero exit), stop and report the error. **Do not write the dump file.**
 
-### 5. Build the context dump
+### 6. Build the context dump
 
 Pick a path: `/tmp/bounce-<session>-<window>-<timestamp>.md`, where `<timestamp>` is e.g. `YYYYMMDD-HHMMSS`. Write the dump to this path.
 
@@ -69,7 +89,7 @@ The dump **must include all of the following sections**, in order. Use `##` head
 
 3. **What's going to be done next** — The upcoming task in full detail. Goals, requirements, constraints. The next session should be able to start work from this section alone.
 
-4. **Working state** — Current working directory, current git branch, dirty / staged / untracked files, recent commits relevant to the task, and any running background processes (dev servers, watchers) the next session should know about.
+4. **Working state** — Current working directory of the work just done, current git branch, dirty / staged / untracked files, recent commits relevant to the task, and any running background processes (dev servers, watchers) the next session should know about. **If the new window starts in a different directory** (the user passed `--cwd`), also state the new starting directory (`<target-dir>`) explicitly and warn the next session that file paths elsewhere in this dump refer to the *previous* directory unless otherwise noted. Do not tell the next session to `cd` back — the user moved them on purpose.
 
 5. **Files of interest** — Paths the next session will likely read or modify. Each entry: `path/to/file.ext — one-line role`. Keep the list tight (the most relevant 5–15), not exhaustive.
 
@@ -83,7 +103,7 @@ The dump **must include all of the following sections**, in order. Use `##` head
 
 10. **Concrete next steps** — The first 1–3 things the new session should do, in order. This is the on-ramp — it should match what the heads-up message asks for, if any.
 
-### 6. Send the bounce prompt to the new window
+### 7. Send the bounce prompt to the new window
 
 Compose a short prompt. Template (English):
 
@@ -111,11 +131,12 @@ tmux send-keys -t <session>:<new-window-name> Enter
 
 If `tmux send-keys` fails, report the error. The dump file is already written, so the user can paste it manually as a fallback.
 
-### 7. Confirm to the user
+### 8. Confirm to the user
 
 A 2–3 line confirmation in the current window. Include:
 - The agent that was launched (`claude` or `opencode`).
 - The new window name (so the user can switch to it with `C-a w/s` or `C-a M-N`).
+- The new window's working directory (`<target-dir>`). If it came from `--cwd`, say so explicitly.
 - The dump file path (so the user can read it themselves if curious).
 - The heads-up message that was forwarded (verbatim), or `(none)`.
 
