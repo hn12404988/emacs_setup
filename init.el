@@ -921,6 +921,10 @@ line, just delete the newline (joining with previous line)."
   ;; before firing a request — the default 0.05s cancels every request
   ;; on the next keystroke and you never see ghost text.
   (setq inline-suggestion-idle-delay 0.5)
+  ;; Trim context to keep prefill cheap on the NPU. Defaults are 50/20,
+  ;; but for short FIM completions 15/5 is usually enough signal.
+  (setq inline-suggestion-max-prefix-lines 15)
+  (setq inline-suggestion-max-suffix-lines 5)
   :bind (:map my-keys-minor-mode-map
          ("M-i" . inline-suggestion-toggle))
   :hook ((prog-mode . inline-suggestion-mode)
