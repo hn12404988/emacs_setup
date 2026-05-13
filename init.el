@@ -917,10 +917,6 @@ line, just delete the newline (joining with previous line)."
   (setq inline-suggestion-server-autostart nil)
   (setq inline-suggestion-server-url "http://localhost:8080")
   (setq inline-suggestion-max-tokens 10)
-  ;; NPU decode is ~15 tok/s, not GPU-fast. Wait until you actually pause
-  ;; before firing a request — the default 0.05s cancels every request
-  ;; on the next keystroke and you never see ghost text.
-  (setq inline-suggestion-idle-delay 0.5)
   ;; Trim context to keep prefill cheap on the NPU. Defaults are 50/20,
   ;; but for short FIM completions 15/5 is usually enough signal.
   (setq inline-suggestion-max-prefix-lines 15)
