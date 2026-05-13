@@ -38,11 +38,6 @@
   :type 'string
   :group 'inline-suggestion)
 
-(defcustom inline-suggestion-idle-delay 0.05
-  "Seconds of idle time before requesting a suggestion."
-  :type 'number
-  :group 'inline-suggestion)
-
 (defcustom inline-suggestion-max-tokens 100
   "Maximum number of tokens to generate."
   :type 'integer
@@ -86,9 +81,6 @@ Falls back to the INLINE_SUGGEST_MODEL environment variable when nil."
 
 (defvar-local inline-suggestion--overlay nil
   "Overlay displaying the current ghost text suggestion.")
-
-(defvar-local inline-suggestion--timer nil
-  "Idle timer for scheduling suggestion requests.")
 
 (defvar-local inline-suggestion--http-buffer nil
   "Buffer for the in-flight HTTP request.")
@@ -175,9 +167,14 @@ multibyte text when concatenating headers with the body."
      (inline-suggestion--escape-non-ascii (json-encode body))
      'utf-8)))
 
-(defun inline-suggestion--fetch (callback)
-  "Send async FIM request.  Call CALLBACK with suggestion text on success.
-Snapshots buffer state to detect staleness."
+(defun inline-suggestion--fetch ()
+  "Send async FIM request and process the response.
+Snapshots `(point)' and `(buffer-chars-modified-tick)' at send time.
+When the response arrives:
+- If the buffer is unchanged, show the suggestion as ghost text.
+- If the user typed during the request and those chars are a prefix
+  of the suggestion, show the remaining suggestion.
+- Otherwise drop the response and fire a new request."
   (let* ((snap-point (point))
          (snap-tick (buffer-chars-modified-tick))
          (snap-buffer (current-buffer))
@@ -194,51 +191,74 @@ Snapshots buffer state to detect staleness."
           (url-retrieve
            api-url
            (lambda (_status)
-             (unwind-protect
-                 (condition-case err
-                     (progn
-                       ;; Check for HTTP errors
-                       (goto-char (point-min))
-                       (unless (re-search-forward "^HTTP/[0-9.]+ 200" nil t)
+             (let (text)
+               (unwind-protect
+                   (condition-case err
+                       (progn
+                         ;; Check for HTTP errors
                          (goto-char (point-min))
-                         (let ((status-line (buffer-substring-no-properties
-                                             (point) (line-end-position)))
-                               (body ""))
-                           (when (re-search-forward "\r?\n\r?\n" nil t)
-                             (setq body (buffer-substring-no-properties
-                                         (point) (min (+ (point) 500) (point-max)))))
-                           (error "Non-200: %s | %s" status-line body)))
-                       ;; Jump to response body.
-                       (if (and (boundp 'url-http-end-of-headers)
-                                url-http-end-of-headers)
-                           (goto-char url-http-end-of-headers)
-                         (goto-char (point-min))
-                         (unless (re-search-forward "\r?\n\r?\n" nil t)
-                           (error "Could not find HTTP response body")))
-                       (let* ((json-object-type 'alist)
-                              (json-array-type 'vector)
-                              (resp (json-read))
-                              (text (alist-get 'content resp)))
-                         (when (and text (not (string-empty-p (string-trim text))))
-                           (when (buffer-live-p snap-buffer)
-                             (with-current-buffer snap-buffer
-                               (when (and (= snap-point (point))
-                                          (= snap-tick (buffer-chars-modified-tick)))
-                                 (funcall callback (string-trim-right text))))))))
-                   (error
-                    (message "inline-suggestion: request error: %s"
-                             (error-message-string err))))
-               ;; Always clear in-flight flag when done
-               (when (buffer-live-p snap-buffer)
-                 (with-current-buffer snap-buffer
-                   (setq inline-suggestion--request-in-flight nil)))
+                         (unless (re-search-forward "^HTTP/[0-9.]+ 200" nil t)
+                           (goto-char (point-min))
+                           (let ((status-line (buffer-substring-no-properties
+                                               (point) (line-end-position)))
+                                 (body ""))
+                             (when (re-search-forward "\r?\n\r?\n" nil t)
+                               (setq body (buffer-substring-no-properties
+                                           (point) (min (+ (point) 500) (point-max)))))
+                             (error "Non-200: %s | %s" status-line body)))
+                         ;; Jump to response body.
+                         (if (and (boundp 'url-http-end-of-headers)
+                                  url-http-end-of-headers)
+                             (goto-char url-http-end-of-headers)
+                           (goto-char (point-min))
+                           (unless (re-search-forward "\r?\n\r?\n" nil t)
+                             (error "Could not find HTTP response body")))
+                         (let* ((json-object-type 'alist)
+                                (json-array-type 'vector)
+                                (resp (json-read))
+                                (resp-text (alist-get 'content resp)))
+                           (when (and resp-text
+                                      (not (string-empty-p (string-trim resp-text))))
+                             (setq text (string-trim-right resp-text)))))
+                     (error
+                      (message "inline-suggestion: request error: %s"
+                               (error-message-string err))))
+               ;; Kill the HTTP response buffer
                (let ((buf (current-buffer)))
                  (when (buffer-live-p buf)
                    (let ((proc (get-buffer-process buf)))
                      (when (and proc (process-live-p proc))
                        (set-process-query-on-exit-flag proc nil)
                        (delete-process proc)))
-                   (kill-buffer buf)))))
+                   (kill-buffer buf)))
+               ;; Clear in-flight flag and decide: show, salvage, or re-fire
+               (when (buffer-live-p snap-buffer)
+                 (with-current-buffer snap-buffer
+                   (setq inline-suggestion--request-in-flight nil)
+                   (let* ((cur-point (point))
+                          (cur-tick (buffer-chars-modified-tick))
+                          (state-changed (or (/= snap-point cur-point)
+                                             (/= snap-tick cur-tick)))
+                          (showed nil))
+                     (when text
+                       (cond
+                        ;; No edits during request — show as-is
+                        ((not state-changed)
+                         (inline-suggestion--show text)
+                         (setq showed t))
+                        ;; Typed forward — salvage if typed is a prefix
+                        ((and (> cur-point snap-point)
+                              (let ((typed (buffer-substring-no-properties
+                                            snap-point cur-point)))
+                                (string-prefix-p typed text)))
+                         (let ((typed (buffer-substring-no-properties
+                                       snap-point cur-point)))
+                           (inline-suggestion--show
+                            (substring text (length typed)))
+                           (setq showed t)))))
+                     ;; State changed and nothing shown — fire a new request
+                     (when (and state-changed (not showed))
+                       (inline-suggestion--fetch))))))))
            nil t t))
     ;; Prevent "active connection" prompt on Emacs exit
     (when-let ((proc (get-buffer-process inline-suggestion--http-buffer)))
@@ -326,45 +346,16 @@ trailing text so existing content remains visible after the ghost."
   (setq inline-suggestion--http-buffer nil)
   (setq inline-suggestion--request-in-flight nil))
 
-(defun inline-suggestion--cancel-timer ()
-  "Cancel the pending idle timer."
-  (when inline-suggestion--timer
-    (cancel-timer inline-suggestion--timer)
-    (setq inline-suggestion--timer nil)))
-
 ;; ============================================================================
-;; Scheduling and triggering
+;; Scheduling
 ;; ============================================================================
-
-(defun inline-suggestion--trigger ()
-  "Snapshot buffer state and fire async FIM request.
-Skips if a request is already in flight to avoid piling up
-requests on slow connections."
-  (setq inline-suggestion--timer nil)
-  (if inline-suggestion--request-in-flight
-      ;; Request pending — reschedule so we try again after it finishes
-      (setq inline-suggestion--timer
-            (run-with-idle-timer 0.5 nil
-                                 (let ((buf (current-buffer)))
-                                   (lambda ()
-                                     (when (buffer-live-p buf)
-                                       (with-current-buffer buf
-                                         (inline-suggestion--trigger)))))))
-    (inline-suggestion--cancel-request)
-    (inline-suggestion--fetch #'inline-suggestion--show)))
 
 (defun inline-suggestion--schedule ()
-  "Cancel previous timer/request and schedule a new idle timer."
-  (inline-suggestion--cancel-timer)
-  (inline-suggestion--cancel-request)
-  (inline-suggestion--clear)
-  (setq inline-suggestion--timer
-        (run-with-idle-timer inline-suggestion-idle-delay nil
-                             (let ((buf (current-buffer)))
-                               (lambda ()
-                                 (when (buffer-live-p buf)
-                                   (with-current-buffer buf
-                                     (inline-suggestion--trigger))))))))
+  "Fire a request now unless one is already in flight.
+When a request is in flight, the response handler will fire the
+next request itself if the buffer state changed during the wait."
+  (unless inline-suggestion--request-in-flight
+    (inline-suggestion--fetch)))
 
 ;; ============================================================================
 ;; Post-command hook
@@ -379,16 +370,18 @@ requests on slow connections."
                          inline-suggestion-dismiss
                          inline-suggestion-dismiss-and-replay))
     nil)
-   ;; On self-insert (typing), schedule new suggestion
+   ;; On self-insert (typing), clear stale overlay and fire request
    ((eq this-command 'self-insert-command)
+    (inline-suggestion--clear)
     (inline-suggestion--schedule))
-   ;; On any editing command (delete, kill, yank, etc.), schedule
+   ;; On any editing command (delete, kill, yank, etc.), same as above
    ((memq this-command '(delete-backward-char delete-forward-char
                          backward-delete-char-untabify
                          backward-kill-word kill-word
                          kill-line kill-whole-line
                          yank newline newline-and-indent
                          indent-for-tab-command))
+    (inline-suggestion--clear)
     (inline-suggestion--schedule))
    ;; On movement or anything else, just clear the suggestion
    (t
@@ -580,7 +573,6 @@ PID file as the Makefile for full compatibility."
                     (error-message-string err)))))
     ;; Teardown
     (remove-hook 'post-command-hook #'inline-suggestion--post-command t)
-    (inline-suggestion--cancel-timer)
     (inline-suggestion--cancel-request)
     (inline-suggestion--clear)
     (advice-remove 'posn-at-point #'inline-suggestion--posn-advice)))
