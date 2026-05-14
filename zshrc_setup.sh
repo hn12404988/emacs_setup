@@ -366,6 +366,23 @@ ekillall() {
   done
 }
 
+# Singleton "draft" daemon — always uses /tmp/edraft/ as its project root,
+# regardless of $PWD. One global daemon, not per-directory.
+edraft() {
+  local sock="$EMACS_SOCK_DIR/emacs-edraft"
+  mkdir -p /tmp/edraft
+  [ -e /tmp/edraft/notes.md ] || touch /tmp/edraft/notes.md
+  if ! emacsclient -s "$sock" -e nil &>/dev/null; then
+    env -i HOME="$HOME" PATH="$PATH" TMPDIR=/tmp emacs --daemon="$sock"
+  fi
+  emacsclient -s "$sock" -nw /tmp/edraft/notes.md
+}
+
+ekilldraft() {
+  local sock="$EMACS_SOCK_DIR/emacs-edraft"
+  emacsclient -s "$sock" -e "(kill-emacs)"
+}
+
 export EDITOR='emacsclient -nw'
 
 # ---- Check Point VPN CLI (see section 10 for install) ----
@@ -576,6 +593,9 @@ export EDITOR='emacsclient -nw'
 # elist          — List all running Emacs daemons
 # ekill          — Kill the daemon for the current directory
 # ekillall       — Kill ALL running Emacs daemons
+# edraft         — Open /tmp/edraft/notes.md in the single global draft daemon
+#                  (creates the file if missing)
+# ekilldraft     — Kill the draft daemon
 # pg info        — Show VPN status (macOS trac)
 # pg connect     — Connect to VPN (macOS trac)
 # pg disconnect  — Disconnect VPN (macOS trac)
