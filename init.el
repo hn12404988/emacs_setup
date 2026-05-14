@@ -517,6 +517,10 @@ The `hints' panel covers Info+Hint to match lsp-modeline's third counter.")
   (setq dired-kill-when-opening-new-dired-buffer t)
   (define-key dired-mode-map (kbd "M") #'my/dired-preview-markdown-mdcat))
 
+;; Hide file details (permissions, owner, group, size, date) in dired by default.
+;; Press "(" inside a dired buffer to toggle them back on when needed.
+(add-hook 'dired-mode-hook #'dired-hide-details-mode)
+
 ;; Load dired-x at startup so C-x C-j works before any dired buffer is opened
 (require 'dired-x)
 
