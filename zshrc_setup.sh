@@ -368,14 +368,39 @@ ekillall() {
 
 # Singleton "draft" daemon — always uses /tmp/edraft/ as its project root,
 # regardless of $PWD. One global daemon, not per-directory.
+#   edraft              — open the latest /tmp/edraft/notes-*.md (create if none)
+#   edraft --new        — create a fresh notes-<TS>.md and land on it
+#   edraft --name <n>   — create/open notes-<n>.md (e.g. edraft --name kevin)
+# Old draft files are never deleted by these functions — /tmp is wiped on reboot.
 edraft() {
   local sock="$EMACS_SOCK_DIR/emacs-edraft"
   mkdir -p /tmp/edraft
-  [ -e /tmp/edraft/notes.md ] || touch /tmp/edraft/notes.md
+  local file
+  case "$1" in
+    --new)
+      file="/tmp/edraft/notes-$(date +%Y%m%d-%H%M%S).md"
+      touch "$file"
+      ;;
+    --name)
+      if [ -z "$2" ]; then
+        echo "edraft --name <name>: missing name" >&2
+        return 1
+      fi
+      file="/tmp/edraft/notes-$2.md"
+      touch "$file"
+      ;;
+    *)
+      file=$(ls -1t /tmp/edraft/notes-*.md 2>/dev/null | head -n 1)
+      if [ -z "$file" ]; then
+        file="/tmp/edraft/notes-$(date +%Y%m%d-%H%M%S).md"
+        touch "$file"
+      fi
+      ;;
+  esac
   if ! emacsclient -s "$sock" -e nil &>/dev/null; then
     env -i HOME="$HOME" PATH="$PATH" TMPDIR=/tmp emacs --daemon="$sock"
   fi
-  emacsclient -s "$sock" -nw /tmp/edraft/notes.md
+  emacsclient -s "$sock" -nw "$file"
 }
 
 ekilldraft() {
@@ -593,8 +618,12 @@ export EDITOR='emacsclient -nw'
 # elist          — List all running Emacs daemons
 # ekill          — Kill the daemon for the current directory
 # ekillall       — Kill ALL running Emacs daemons
-# edraft         — Open /tmp/edraft/notes.md in the single global draft daemon
-#                  (creates the file if missing)
+# edraft         — Open the latest /tmp/edraft/notes-*.md in the singleton
+#                  draft daemon. Creates a new one if none exists yet.
+# edraft --new   — Force-create a fresh notes-<TS>.md and land on it.
+# edraft --name <n>
+#                — Create/open notes-<n>.md (e.g. edraft --name kevin).
+#                  Old files are never deleted — /tmp is wiped on reboot.
 # ekilldraft     — Kill the draft daemon
 # pg info        — Show VPN status (macOS trac)
 # pg connect     — Connect to VPN (macOS trac)
