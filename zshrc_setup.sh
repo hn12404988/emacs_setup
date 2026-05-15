@@ -405,7 +405,22 @@ edraft() {
 
 ekilldraft() {
   local sock="$EMACS_SOCK_DIR/emacs-edraft"
-  emacsclient -s "$sock" -e "(kill-emacs)"
+  # Try soft kill (saves all buffers, suppresses every prompt). 3s timeout —
+  # if the daemon is wedged on a busy loop or stuck eval, it won't even reach
+  # this form, so we escalate to SIGKILL instead of hanging the shell.
+  timeout 3 emacsclient -s "$sock" -e "(let ((kill-buffer-query-functions nil)
+                                              (kill-emacs-query-functions nil)
+                                              (confirm-kill-emacs nil))
+                                          (save-some-buffers t)
+                                          (kill-emacs))" &>/dev/null
+  local rc=$?
+  local pids=$(pgrep -f 'emacs --daemon=.*emacs-edraft')
+  if [ -n "$pids" ]; then
+    echo "ekilldraft: soft kill rc=$rc, daemon still alive — SIGKILL $pids"
+    kill -9 $pids
+    sleep 0.3
+  fi
+  rm -f "$sock" /tmp/edraft/.#*
 }
 
 export EDITOR='emacsclient -nw'
@@ -624,7 +639,10 @@ export EDITOR='emacsclient -nw'
 # edraft --name <n>
 #                — Create/open notes-<n>.md (e.g. edraft --name kevin).
 #                  Old files are never deleted — /tmp is wiped on reboot.
-# ekilldraft     — Kill the draft daemon
+# ekilldraft     — Kill the draft daemon. Tries soft kill first (saves all
+#                  buffers, suppresses prompts). If the daemon is wedged and
+#                  doesn't respond within 3s, escalates to SIGKILL. Also cleans
+#                  the socket and stale .# lock files. Always returns quickly.
 # pg info        — Show VPN status (macOS trac)
 # pg connect     — Connect to VPN (macOS trac)
 # pg disconnect  — Disconnect VPN (macOS trac)
