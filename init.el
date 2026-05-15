@@ -304,7 +304,9 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
          (typescript-mode . lsp-deferred)
          (js-mode . lsp-deferred)
          (typescript-ts-mode . lsp-deferred) ;; For Emacs 29+ tree-sitter users
-         (python-mode . lsp-deferred))
+         (python-mode . lsp-deferred)
+         (c-mode . lsp-deferred)
+         (c++-mode . lsp-deferred))
   :commands (lsp lsp-deferred)
   :init
   ;; Default Deno off; my/setup-ts-js-lsp enables it per-project
