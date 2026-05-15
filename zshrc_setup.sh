@@ -371,12 +371,39 @@ ekillall() {
 #   edraft              — open the latest /tmp/edraft/notes-*.md (create if none)
 #   edraft --new        — create a fresh notes-<TS>.md and land on it
 #   edraft --name <n>   — create/open notes-<n>.md (e.g. edraft --name kevin)
-# Old draft files are never deleted by these functions — /tmp is wiped on reboot.
+#   edraft list         — list all named drafts (skips timestamp-only ones)
+#   edraft delete <n>   — delete notes-<n>.md (e.g. edraft delete erp)
+# Old draft files are never deleted automatically — /tmp is wiped on reboot.
 edraft() {
   local sock="$EMACS_SOCK_DIR/emacs-edraft"
   mkdir -p /tmp/edraft
   local file
   case "$1" in
+    list)
+      local f name
+      for f in $(ls -1t /tmp/edraft/notes-*.md 2>/dev/null); do
+        name=$(basename "$f" .md)
+        name="${name#notes-}"
+        # Skip timestamp-only files from --new (YYYYMMDD-HHMMSS).
+        if ! [[ "$name" =~ ^[0-9]{8}-[0-9]{6}$ ]]; then
+          echo "$name"
+        fi
+      done
+      return 0
+      ;;
+    delete)
+      if [ -z "$2" ]; then
+        echo "edraft delete <name>: missing name" >&2
+        return 1
+      fi
+      local target="/tmp/edraft/notes-$2.md"
+      if [ ! -e "$target" ]; then
+        echo "edraft delete: no such draft: $2" >&2
+        return 1
+      fi
+      rm -f "$target" "/tmp/edraft/.#notes-$2.md"
+      return 0
+      ;;
     --new)
       file="/tmp/edraft/notes-$(date +%Y%m%d-%H%M%S).md"
       touch "$file"
@@ -639,6 +666,14 @@ export EDITOR='emacsclient -nw'
 # edraft --name <n>
 #                — Create/open notes-<n>.md (e.g. edraft --name kevin).
 #                  Old files are never deleted — /tmp is wiped on reboot.
+# edraft list    — List all named drafts (the ones created with --name).
+#                  Timestamp-only drafts from --new are skipped. Sorted by
+#                  most-recently-modified first.
+# edraft delete <n>
+#                — Delete notes-<n>.md and any leftover Emacs .# lock for it
+#                  (e.g. edraft delete erp). Errors if the draft doesn't exist.
+#                  Does NOT close any open buffer in the daemon — if you have
+#                  it open and save, the file will be recreated.
 # ekilldraft     — Kill the draft daemon. Tries soft kill first (saves all
 #                  buffers, suppresses prompts). If the daemon is wedged and
 #                  doesn't respond within 3s, escalates to SIGKILL. Also cleans
