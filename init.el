@@ -894,6 +894,9 @@ line, just delete the newline (joining with previous line)."
   :config
   (setq vterm-kill-buffer-on-exit t)
   (setq vterm-max-scrollback 10000)
+  ;; Drop the leading "*" so vterm buffers participate in C-M-s / C-M-w rotation
+  ;; (switch-to-prev-buffer-skip filters out buffers starting with "*" or space).
+  (setq vterm-buffer-name "vterm")
   (setq vterm-keymap-exceptions '("C-x" "C-u" "C-g" "C-h" "M-x" "M-o"))
   ;; ESC bindings for GUI Emacs
   (define-key vterm-mode-map [escape] #'vterm-send-escape)
