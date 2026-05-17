@@ -1,0 +1,57 @@
+#cloud-config
+# Rendered by Terraform templatefile(). ${hostname} is substituted with var.derper_hostname.
+# Literal shell $ signs are escaped as $$ so templatefile leaves them alone.
+
+package_update: true
+package_upgrade: false
+
+packages:
+  - ca-certificates
+  - libcap2-bin
+  - curl
+
+write_files:
+  - path: /etc/systemd/system/derper.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Tailscale DERP server
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      User=derper
+      Group=derper
+      ExecStart=/usr/local/bin/derper -a :443 -http-port 80 -stun-port 3478 -hostname ${hostname} -certmode letsencrypt -c /var/lib/derper/derper.conf -certdir /var/lib/derper
+      Restart=always
+      RestartSec=10
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /usr/local/sbin/setup-derper.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -euxo pipefail
+      id derper >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin -d /var/lib/derper derper
+      install -d -o derper -g derper -m 0700 /var/lib/derper
+      ARCH=$$(uname -m)
+      case $${ARCH} in
+        x86_64)  GOARCH=amd64 ;;
+        aarch64) GOARCH=arm64 ;;
+        *) echo "unsupported arch $${ARCH}"; exit 1 ;;
+      esac
+      GO_VERSION=$$(curl -fsSL https://go.dev/VERSION?m=text | head -1)
+      curl -fsSL "https://go.dev/dl/$${GO_VERSION}.linux-$${GOARCH}.tar.gz" -o /tmp/go.tar.gz
+      tar -C /usr/local -xzf /tmp/go.tar.gz
+      rm /tmp/go.tar.gz
+      ln -sf /usr/local/go/bin/go /usr/local/bin/go
+      GOBIN=/usr/local/bin go install tailscale.com/cmd/derper@latest
+      setcap 'cap_net_bind_service=+ep' /usr/local/bin/derper
+      systemctl daemon-reload
+      systemctl enable --now derper.service
+
+runcmd:
+  - /usr/local/sbin/setup-derper.sh
