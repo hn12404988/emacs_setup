@@ -37,18 +37,18 @@ write_files:
       set -euxo pipefail
       id derper >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin -d /var/lib/derper derper
       install -d -o derper -g derper -m 0700 /var/lib/derper
-      ARCH=$$(uname -m)
+      ARCH=$(uname -m)
       case $${ARCH} in
         x86_64)  GOARCH=amd64 ;;
         aarch64) GOARCH=arm64 ;;
         *) echo "unsupported arch $${ARCH}"; exit 1 ;;
       esac
-      GO_VERSION=$$(curl -fsSL https://go.dev/VERSION?m=text | head -1)
+      GO_VERSION=$(curl -fsSL https://go.dev/VERSION?m=text | head -1)
       curl -fsSL "https://go.dev/dl/$${GO_VERSION}.linux-$${GOARCH}.tar.gz" -o /tmp/go.tar.gz
       tar -C /usr/local -xzf /tmp/go.tar.gz
       rm /tmp/go.tar.gz
       ln -sf /usr/local/go/bin/go /usr/local/bin/go
-      GOBIN=/usr/local/bin go install tailscale.com/cmd/derper@latest
+      HOME=/root GOBIN=/usr/local/bin go install tailscale.com/cmd/derper@latest
       setcap 'cap_net_bind_service=+ep' /usr/local/bin/derper
       systemctl daemon-reload
       systemctl enable --now derper.service
