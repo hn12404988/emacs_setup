@@ -19,7 +19,7 @@ data "aws_ami" "ubuntu" {
 
   filter {
     name   = "name"
-    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
+    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-*"]
   }
 
   filter {
@@ -133,6 +133,7 @@ resource "aws_instance" "derper" {
   user_data = templatefile("${path.module}/cloud-init.yaml", {
     hostname = var.derper_hostname
   })
+  user_data_replace_on_change = true
 
   root_block_device {
     volume_size = 10
