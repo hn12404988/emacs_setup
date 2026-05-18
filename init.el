@@ -100,6 +100,9 @@
 ;;ido
 (ido-mode 1)
 (setq ido-default-buffer-method 'selected-window)
+;; Flex matching: "ct" matches "chat.py", "inistl" matches "init.el".
+;; Chars must appear in order; does NOT handle typos (e.g. "chad" won't match "chat.py").
+(setq ido-enable-flex-matching t)
 ;; Hide *special* buffers from C-x b (anything starting with " " or "*")
 (setq ido-ignore-buffers '("\\` " "\\`\\*"))
 
@@ -247,6 +250,8 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
   :diminish
   :config
   (projectile-mode +1)
+  ;; Use ido for projectile-find-file so ido-enable-flex-matching applies
+  (setq projectile-completion-system 'ido)
   ;; Include git-ignored files (like .env) in projectile-find-file
   (setq projectile-git-command "git ls-files -zco --exclude-standard && git ls-files -zcoi --exclude-standard -- ':!target' ':!node_modules'")
   (setq projectile-globally-ignored-directories
@@ -254,6 +259,13 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
   (setq projectile-use-git-grep t)
   :bind-keymap
   ("C-c p" . projectile-command-map))
+
+(defun my/find-file-smart ()
+  "Use projectile-find-file inside a project, else fall back to find-file."
+  (interactive)
+  (if (projectile-project-p)
+      (projectile-find-file)
+    (call-interactively #'find-file)))
 
 ;; Rust support
 (use-package rust-mode
@@ -748,7 +760,7 @@ line, just delete the newline (joining with previous line)."
 (define-key my-keys-minor-mode-map (kbd "C-c") 'my-kill-ring-save)
 (define-key my-keys-minor-mode-map (kbd "C-v") 'my-smart-paste)
 (define-key my-keys-minor-mode-map (kbd "C-x k") 'kill-current-buffer)
-(define-key my-keys-minor-mode-map (kbd "C-x C-f") 'projectile-find-file)
+(define-key my-keys-minor-mode-map (kbd "C-x C-f") 'my/find-file-smart)
 (define-key my-keys-minor-mode-map (kbd "C-M-f") 'projectile-grep)
 (define-key my-keys-minor-mode-map (kbd "C-k") 'kill-whole-line)
 ;; Toggle flycheck errors sidebar
