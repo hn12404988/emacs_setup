@@ -450,6 +450,33 @@ ekilldraft() {
   rm -f "$sock" /tmp/edraft/.#*
 }
 
+# Emergency kill for the edraft daemon. Use when it's frozen in an Elisp
+# loop and emacsclient calls would hang. Skips the emacsclient soft-kill
+# path entirely: SIGTERM (still lets Emacs auto-save if it can), then
+# SIGKILL if it doesn't die in 2s, then cleans up socket + .# locks.
+edraftkillpid() {
+  local pids=$(pgrep -f 'emacs --daemon=.*emacs-edraft$')
+  if [ -z "$pids" ]; then
+    echo "edraftkillpid: no edraft daemon running"
+    return 0
+  fi
+  echo "edraftkillpid: SIGTERM -> $pids"
+  kill -TERM $pids
+  sleep 2
+  pids=$(pgrep -f 'emacs --daemon=.*emacs-edraft$')
+  if [ -n "$pids" ]; then
+    echo "edraftkillpid: still alive — SIGKILL $pids"
+    kill -KILL $pids
+    sleep 0.3
+  fi
+  rm -f "$EMACS_SOCK_DIR/emacs-edraft" /tmp/edraft/.#*
+  if pgrep -f 'emacs --daemon=.*emacs-edraft$' >/dev/null; then
+    echo "edraftkillpid: ERROR — daemon still alive after SIGKILL"
+    return 1
+  fi
+  echo "edraftkillpid: done"
+}
+
 export EDITOR='emacsclient -nw'
 
 # ---- Check Point VPN CLI (see section 10 for install) ----
@@ -678,6 +705,12 @@ export EDITOR='emacsclient -nw'
 #                  buffers, suppresses prompts). If the daemon is wedged and
 #                  doesn't respond within 3s, escalates to SIGKILL. Also cleans
 #                  the socket and stale .# lock files. Always returns quickly.
+# edraftkillpid  — Emergency kill when the draft daemon is frozen in an Elisp
+#                  loop and emacsclient calls would hang. Skips the emacsclient
+#                  soft-kill path entirely: SIGTERM, then SIGKILL after 2s if
+#                  still alive, then cleans socket + .# locks. Use this when
+#                  the cursor in the draft frames won't move and ekilldraft
+#                  itself would block on the wedged daemon.
 # pg info        — Show VPN status (macOS trac)
 # pg connect     — Connect to VPN (macOS trac)
 # pg disconnect  — Disconnect VPN (macOS trac)
