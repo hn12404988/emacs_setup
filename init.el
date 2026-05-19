@@ -263,6 +263,7 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
 (defun my/find-file-smart ()
   "Use projectile-find-file inside a project, else fall back to find-file."
   (interactive)
+  (require 'projectile)
   (if (projectile-project-p)
       (projectile-find-file)
     (call-interactively #'find-file)))
