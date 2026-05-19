@@ -369,8 +369,9 @@ ekillall() {
 # Singleton "draft" daemon — always uses /tmp/edraft/ as its project root,
 # regardless of $PWD. One global daemon, not per-directory.
 #   edraft              — open the latest /tmp/edraft/notes-*.md (create if none)
+#   edraft <n>          — open notes-<n>.md (e.g. edraft kevin). Errors if missing.
 #   edraft --new        — create a fresh notes-<TS>.md and land on it
-#   edraft --name <n>   — create/open notes-<n>.md (e.g. edraft --name kevin)
+#   edraft --name <n>   — create notes-<n>.md and open it (idempotent if exists)
 #   edraft list         — list all named drafts (skips timestamp-only ones)
 #   edraft delete <n>   — delete notes-<n>.md (e.g. edraft delete erp)
 # Old draft files are never deleted automatically — /tmp is wiped on reboot.
@@ -416,11 +417,18 @@ edraft() {
       file="/tmp/edraft/notes-$2.md"
       touch "$file"
       ;;
-    *)
+    "")
       file=$(ls -1t /tmp/edraft/notes-*.md 2>/dev/null | head -n 1)
       if [ -z "$file" ]; then
         file="/tmp/edraft/notes-$(date +%Y%m%d-%H%M%S).md"
         touch "$file"
+      fi
+      ;;
+    *)
+      file="/tmp/edraft/notes-$1.md"
+      if [ ! -e "$file" ]; then
+        echo "edraft: no such draft: $1 (use 'edraft --name $1' to create)" >&2
+        return 1
       fi
       ;;
   esac
@@ -689,9 +697,12 @@ export EDITOR='emacsclient -nw'
 # ekillall       — Kill ALL running Emacs daemons
 # edraft         — Open the latest /tmp/edraft/notes-*.md in the singleton
 #                  draft daemon. Creates a new one if none exists yet.
+# edraft <n>     — Open existing notes-<n>.md (e.g. edraft kevin).
+#                  Errors if the draft does not exist — use --name to create.
 # edraft --new   — Force-create a fresh notes-<TS>.md and land on it.
 # edraft --name <n>
-#                — Create/open notes-<n>.md (e.g. edraft --name kevin).
+#                — Create notes-<n>.md and open it (e.g. edraft --name kevin).
+#                  Idempotent if the file already exists.
 #                  Old files are never deleted — /tmp is wiped on reboot.
 # edraft list    — List all named drafts (the ones created with --name).
 #                  Timestamp-only drafts from --new are skipped. Sorted by
