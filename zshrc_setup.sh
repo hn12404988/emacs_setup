@@ -366,6 +366,7 @@ ekillall() {
   done
 }
 
+<<<<<<< Updated upstream
 # Singleton "draft" daemon — always uses /tmp/edraft/ as its project root,
 # regardless of $PWD. One global daemon, not per-directory.
 #   edraft              — open the latest /tmp/edraft/notes-*.md (create if none)
@@ -483,6 +484,13 @@ edraftkillpid() {
     return 1
   fi
   echo "edraftkillpid: done"
+=======
+# ---- Send a file or directory to the m6 machine over Tailscale SSH ----
+# Usage: m6scp <local-path> <remote-path>
+# Always uses scp -r so it works for both files and directories.
+m6scp() {
+  scp -r "$1" m6@m6:"$2"
+>>>>>>> Stashed changes
 }
 
 export EDITOR='emacsclient -nw'
@@ -695,6 +703,7 @@ export EDITOR='emacsclient -nw'
 # elist          — List all running Emacs daemons
 # ekill          — Kill the daemon for the current directory
 # ekillall       — Kill ALL running Emacs daemons
+<<<<<<< Updated upstream
 # edraft         — Open the latest /tmp/edraft/notes-*.md in the singleton
 #                  draft daemon. Creates a new one if none exists yet.
 # edraft <n>     — Open existing notes-<n>.md (e.g. edraft kevin).
@@ -722,6 +731,9 @@ export EDITOR='emacsclient -nw'
 #                  still alive, then cleans socket + .# locks. Use this when
 #                  the cursor in the draft frames won't move and ekilldraft
 #                  itself would block on the wedged daemon.
+=======
+# m6scp SRC DST  — scp a local file or directory to the m6 machine (uses -r)
+>>>>>>> Stashed changes
 # pg info        — Show VPN status (macOS trac)
 # pg connect     — Connect to VPN (macOS trac)
 # pg disconnect  — Disconnect VPN (macOS trac)
