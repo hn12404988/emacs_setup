@@ -6,7 +6,11 @@
 ;; This config is fully portable. All Emacs packages auto-install on first run.
 ;;
 ;; External dependencies (optional - config degrades gracefully without them):
-;;   brew install pandoc      # Markdown preview
+;;   brew install pandoc      # markdown-mode HTML preview (C-c C-c p)
+;;   brew install rich        # Dired markdown preview Shift+M (macOS)
+;;   pipx install rich-cli && pipx inject rich-cli 'rich>=13.7'   # Linux
+;;                            # ^ inject is required: rich-cli pins rich==12.6
+;;                            #   which has no markdown table support.
 ;;   brew install aspell      # Spell checking
 ;;
 ;; Fonts:
@@ -89,7 +93,7 @@
          (matching-text (and cb
                             (char-equal (char-syntax cb) ?\))
                             (blink-matching-open))))
-    (when matching-text (message matching-text))))
+    (when (stringp matching-text) (message "%s" matching-text))))
 (advice-add 'show-paren-function :after #'my/show-matching-paren-offscreen)
 
 ;;clock
@@ -485,20 +489,28 @@ The `hints' panel covers Info+Hint to match lsp-modeline's third counter.")
   (setq markdown-command "pandoc")
   :hook (markdown-mode . visual-line-mode))
 
-(defun my/mdcat-render ()
-  "Render current markdown file with mdcat in a buffer with colors."
+(defun my/rich-render ()
+  "Render current markdown file with rich-cli in a buffer with colors."
   (interactive)
   (let* ((file (buffer-file-name))
-         (buf-name "*mdcat*")
+         (buf-name "*rich*")
          (width (max 60 (- (window-width) 2))))
     (when (get-buffer buf-name)
       (kill-buffer buf-name))
     (let ((buf (get-buffer-create buf-name)))
       (with-current-buffer buf
-        (call-process "mdcat" nil buf nil
-                      "--ansi" "--local"
-                      "--columns" (number-to-string width)
-                      file)
+        ;; render-md.py wraps Rich and forces tables to expand to full width.
+        ;; Two env vars are required:
+        ;;   COLUMNS - tells Rich how wide to render.
+        ;;   TERM    - Emacs sets TERM=dumb for child processes by default,
+        ;;             which makes Rich's `is_dumb_terminal' fire and force
+        ;;             an 80x25 fallback, bypassing COLUMNS entirely. Override
+        ;;             with a real terminfo entry so COLUMNS is honored.
+        (with-environment-variables (("COLUMNS" (number-to-string width))
+                                     ("TERM" "xterm-256color"))
+          (call-process "python3" nil buf nil
+                        (expand-file-name "render-md.py" "~/willy/emacs_setup/")
+                        file))
         (insert (xterm-color-filter (delete-and-extract-region (point-min) (point-max))))
         (view-mode 1)
         (local-set-key (kbd "q") 'kill-buffer-and-window))
@@ -509,28 +521,34 @@ The `hints' panel covers Info+Hint to match lsp-modeline's third counter.")
             (lambda (orig-fun &optional kill window)
               (funcall orig-fun t window)))
 
-(defun my/dired-preview-markdown-mdcat ()
-  "Preview markdown file at point in dired using mdcat."
+(defun my/dired-preview-markdown-rich ()
+  "Preview markdown file at point in dired using rich-cli."
   (interactive)
-  (let* ((file (dired-get-file-for-visit))
-         (buf (get-buffer-create "*mdcat-preview*"))
-         (width (max 60 (- (window-width) 2))))
-    (with-current-buffer buf
-      (let ((inhibit-read-only t))
-        (erase-buffer)
-        (call-process "mdcat" nil t nil
-                      "--ansi" "--local"
-                      "--columns" (number-to-string width)
-                      file)
-        (insert (xterm-color-filter (delete-and-extract-region (point-min) (point-max))))
-        (goto-char (point-min)))
-      (special-mode))
-    (switch-to-buffer buf)))
+  (let ((file (dired-get-file-for-visit))
+        (buf  (get-buffer-create "*rich-preview*")))
+    ;; Display the buffer FIRST so window-body-width reflects the real
+    ;; text area (frame minus fringes/line-numbers). Render at that width.
+    (switch-to-buffer buf)
+    (delete-other-windows)
+    (display-line-numbers-mode -1)
+    (setq-local truncate-lines t)
+    (let ((width (max 60 (window-body-width)))
+          (inhibit-read-only t))
+      (erase-buffer)
+      ;; See my/rich-render for why both COLUMNS and TERM must be set.
+      (with-environment-variables (("COLUMNS" (number-to-string width))
+                                   ("TERM" "xterm-256color"))
+        (call-process "python3" nil t nil
+                      (expand-file-name "render-md.py" "~/willy/emacs_setup/")
+                      file))
+      (insert (xterm-color-filter (delete-and-extract-region (point-min) (point-max))))
+      (goto-char (point-min))
+      (special-mode))))
 
 (with-eval-after-load 'dired
   (require 'dired-x)  ;; enables C-x C-j (dired-jump) to open Dired on current file's dir
   (setq dired-kill-when-opening-new-dired-buffer t)
-  (define-key dired-mode-map (kbd "M") #'my/dired-preview-markdown-mdcat))
+  (define-key dired-mode-map (kbd "M") #'my/dired-preview-markdown-rich))
 
 ;; Hide file details (permissions, owner, group, size, date) in dired by default.
 ;; Press "(" inside a dired buffer to toggle them back on when needed.
