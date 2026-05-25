@@ -607,6 +607,27 @@ The `hints' panel covers Info+Hint to match lsp-modeline's third counter.")
 (use-package yasnippet-snippets
   :after yasnippet)
 
+;; Code folding (hideshow)
+(use-package hideshow
+  :straight nil  ;; built-in package
+  :config
+  (defun my/hs-fold-on-load ()
+    "Automatically fold the buffer on load, keeping only the first layer expanded."
+    (interactive)
+    (when (and (boundp 'hs-minor-mode)
+               (not (minibufferp)))
+      (hs-minor-mode 1)
+      (save-excursion
+        (goto-char (point-min))
+        ;; Use level 2 to keep the first layer (e.g., classes, impl blocks, or
+        ;; top-level functions) open, while folding everything inside them.
+        ;; Change the argument to 1 if you want to fold the top-level blocks too.
+        (hs-hide-level 2))))
+  :hook ((rust-mode . my/hs-fold-on-load)
+         (typescript-mode . my/hs-fold-on-load)
+         (js-mode . my/hs-fold-on-load)
+         (python-mode . my/hs-fold-on-load)))
+
 ;; Company mode disabled — inline ghost text (inline-suggestion-mode) replaces it.
 ;; LSP completions are still reachable on demand via C-M-i (completion-at-point).
 ;; (use-package company
@@ -763,6 +784,7 @@ line, just delete the newline (joining with previous line)."
 (define-key my-keys-minor-mode-map (kbd "C-x k") 'kill-current-buffer)
 (define-key my-keys-minor-mode-map (kbd "C-x C-f") 'my/find-file-smart)
 (define-key my-keys-minor-mode-map (kbd "C-M-f") 'projectile-grep)
+(define-key my-keys-minor-mode-map (kbd "C-M-l") 'hs-toggle-hiding)
 (define-key my-keys-minor-mode-map (kbd "C-k") 'kill-whole-line)
 ;; Toggle flycheck errors sidebar
 (define-key my-keys-minor-mode-map (kbd "M-1") 'my/toggle-flycheck-errors)
@@ -770,6 +792,9 @@ line, just delete the newline (joining with previous line)."
 (define-key my-keys-minor-mode-map (kbd "M-2") 'my/toggle-lsp-errors)    ;; severity 1
 (define-key my-keys-minor-mode-map (kbd "M-3") 'my/toggle-lsp-warnings)  ;; severity 2
 (define-key my-keys-minor-mode-map (kbd "M-4") 'my/toggle-lsp-hints)     ;; severity 3+4 (Info+Hint)
+;; Code folding keys (hideshow)
+(define-key my-keys-minor-mode-map (kbd "M-5") 'hs-hide-all)
+(define-key my-keys-minor-mode-map (kbd "M-6") 'hs-show-all)
 ;; Toggle indent style (2 spaces <-> 1 tab/4 wide) in current buffer
 (define-key my-keys-minor-mode-map (kbd "M-i") 'my/toggle-indent-style)
 ;; Window resize - smart split line movement
