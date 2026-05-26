@@ -644,7 +644,9 @@ The `hints' panel covers Info+Hint to match lsp-modeline's third counter.")
   :hook ((rust-mode . my/hs-fold-on-load)
          (typescript-mode . my/hs-fold-on-load)
          (js-mode . my/hs-fold-on-load)
-         (python-mode . my/hs-fold-on-load)))
+         (python-mode . my/hs-fold-on-load)
+         (c-mode . my/hs-fold-on-load)
+         (c++-mode . my/hs-fold-on-load)))
 
 ;; Company mode disabled — inline ghost text (inline-suggestion-mode) replaces it.
 ;; LSP completions are still reachable on demand via C-M-i (completion-at-point).
