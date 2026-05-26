@@ -532,7 +532,7 @@ The `hints' panel covers Info+Hint to match lsp-modeline's third counter.")
     (delete-other-windows)
     (display-line-numbers-mode -1)
     (setq-local truncate-lines t)
-    (let ((width (max 60 (window-body-width)))
+    (let ((width (max 60 (- (window-body-width) 10)))
           (inhibit-read-only t))
       (erase-buffer)
       ;; See my/rich-render for why both COLUMNS and TERM must be set.
