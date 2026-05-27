@@ -343,7 +343,11 @@ next request itself if the buffer state changed during the wait."
                          inline-suggestion-dismiss
                          inline-suggestion-dismiss-and-replay))
     nil)
-   ;; On self-insert (typing), clear stale overlay and fire request
+   ;; On self-insert (typing), clear stale overlay and fire request.
+   ;; NOTE: while a suggestion overlay is visible, the transient keymap's
+   ;; default ([t]) binding intercepts the key first and runs
+   ;; `inline-suggestion-dismiss-and-replay'; the type-along logic lives
+   ;; there.  This branch only runs when no overlay is active.
    ((eq this-command 'self-insert-command)
     (inline-suggestion--clear)
     (inline-suggestion--schedule))
@@ -403,14 +407,36 @@ next request itself if the buffer state changed during the wait."
   (inline-suggestion--clear))
 
 (defun inline-suggestion-dismiss-and-replay ()
-  "Dismiss the current suggestion and replay the last key."
+  "Dismiss the current suggestion and replay the last key.
+Type-along: when the key just pressed is a single character that
+matches the next character of the visible ghost text, consume that
+one character and keep the remaining ghost text in place instead of
+dismissing.  This lets you type along the suggestion and accept the
+rest with TAB whenever you want.  When the ghost text runs out, fire
+a fresh request.  Any non-matching key dismisses and is replayed."
   (interactive)
-  (inline-suggestion--clear)
-  (let ((keys (this-command-keys-vector)))
-    (when (and keys (> (length keys) 0))
-      (setq unread-command-events
-            (append (listify-key-sequence keys)
-                    unread-command-events)))))
+  (let* ((text inline-suggestion--suggestion-text)
+         (keys (this-command-keys-vector))
+         (ev (and (> (length keys) 0) (aref keys (1- (length keys))))))
+    (if (and text
+             (> (length text) 0)
+             (characterp ev)
+             (eq ev (aref text 0)))
+        ;; Typed char matches next ghost char — type-along
+        (let ((remaining (substring text 1)))
+          (inline-suggestion--clear)
+          (insert (char-to-string ev))
+          (if (string-empty-p remaining)
+              ;; Ghost text fully consumed — ask for more
+              (inline-suggestion--schedule)
+            ;; Keep showing the remaining ghost text at the new point
+            (inline-suggestion--show remaining)))
+      ;; No match — dismiss and replay the key normally
+      (inline-suggestion--clear)
+      (when (and keys (> (length keys) 0))
+        (setq unread-command-events
+              (append (listify-key-sequence keys)
+                      unread-command-events))))))
 
 ;; ============================================================================
 ;; Global cleanup
