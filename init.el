@@ -400,15 +400,6 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
 (advice-add 'compilation-goto-locus :around
             #'my/compilation-goto-locus-reuse-window)
 
-(defun my/toggle-flycheck-errors ()
-  "Toggle the flycheck errors sidebar."
-  (interactive)
-  (let ((win (get-buffer-window "*Flycheck errors*")))
-    (if win
-        (delete-window win)
-      (flycheck-list-errors)
-      (other-window 1))))
-
 (defconst my/lsp-diagnostic-panels
   '((errors   . ("*lsp-errors*"   "errors"   (1)))
     (warnings . ("*lsp-warnings*" "warnings" (2)))
@@ -418,36 +409,57 @@ LSP severities: 1=Error, 2=Warning, 3=Information, 4=Hint.
 The `hints' panel covers Info+Hint to match lsp-modeline's third counter.")
 
 (defun my/list-workspace-diagnostics (panel)
-  "Collect LSP diagnostics for PANEL into a side-window buffer."
+  "Collect LSP diagnostics for PANEL into a side-window buffer.
+The current file's problems are listed first, then an obvious
+divider, then problems for every other file in the workspace."
   (require 'lsp-mode)
   (require 'grep)
   (let* ((spec (cdr (assq panel my/lsp-diagnostic-panels)))
          (buf-name (nth 0 spec))
          (label (nth 1 spec))
          (severities (nth 2 spec))
+         ;; Capture the file we are viewing BEFORE switching into `buf'.
+         (this-file (buffer-file-name))
          (diags (lsp-diagnostics t))
          (buf (get-buffer-create buf-name))
-         (count 0))
+         (current-lines nil)
+         (other-lines nil)
+         (current-count 0)
+         (other-count 0))
+    ;; Partition matching diagnostics into current-file vs. the rest.
+    (maphash
+     (lambda (file diagnostics)
+       (dolist (d diagnostics)
+         (when (memq (lsp-get d :severity) severities)
+           (let* ((range (lsp-get d :range))
+                  (start (lsp-get range :start))
+                  (line (1+ (lsp-get start :line)))
+                  (col (1+ (lsp-get start :character)))
+                  (msg (lsp-get d :message))
+                  (entry (format "%s:%d:%d: %s\n" file line col msg)))
+             (if (and this-file (file-equal-p file this-file))
+                 (progn (push entry current-lines) (cl-incf current-count))
+               (push entry other-lines)
+               (cl-incf other-count))))))
+     diags)
     (with-current-buffer buf
       (let ((inhibit-read-only t))
         (erase-buffer)
-        (maphash
-         (lambda (file diagnostics)
-           (dolist (d diagnostics)
-             (when (memq (lsp-get d :severity) severities)
-               (let* ((range (lsp-get d :range))
-                      (start (lsp-get range :start))
-                      (line (1+ (lsp-get start :line)))
-                      (col (1+ (lsp-get start :character)))
-                      (msg (lsp-get d :message)))
-                 (insert (format "%s:%d:%d: %s\n" file line col msg))
-                 (cl-incf count)))))
-         diags)
-        (when (zerop count)
-          (insert (format "No workspace %s.\n" label)))
+        ;; Current file on top.
+        (if current-lines
+            (dolist (l (nreverse current-lines)) (insert l))
+          (insert (format "(no %s in current file)\n" label)))
+        ;; Obvious divider, then everything else. No colons here so
+        ;; `grep-mode' does not treat the divider as a clickable hit.
+        (insert "──────────── other files ────────────\n")
+        (if other-lines
+            (dolist (l (nreverse other-lines)) (insert l))
+          (insert (format "(no %s in other files)\n" label)))
         (goto-char (point-min))
         (grep-mode))
-      (setq header-line-format (format "LSP %s: %d" label count)))
+      (setq header-line-format
+            (format "LSP %s — %d here / %d total"
+                    label current-count (+ current-count other-count))))
     (display-buffer buf)
     (when-let ((win (get-buffer-window buf)))
       (select-window win))))
@@ -806,15 +818,17 @@ line, just delete the newline (joining with previous line)."
 (define-key my-keys-minor-mode-map (kbd "C-M-f") 'projectile-grep)
 (define-key my-keys-minor-mode-map (kbd "C-M-l") 'hs-toggle-hiding)
 (define-key my-keys-minor-mode-map (kbd "C-k") 'kill-whole-line)
-;; Toggle flycheck errors sidebar
-(define-key my-keys-minor-mode-map (kbd "M-1") 'my/toggle-flycheck-errors)
-;; Toggle workspace-wide LSP diagnostics panels by severity
-(define-key my-keys-minor-mode-map (kbd "M-2") 'my/toggle-lsp-errors)    ;; severity 1
-(define-key my-keys-minor-mode-map (kbd "M-3") 'my/toggle-lsp-warnings)  ;; severity 2
-(define-key my-keys-minor-mode-map (kbd "M-4") 'my/toggle-lsp-hints)     ;; severity 3+4 (Info+Hint)
+;; Toggle workspace-wide LSP diagnostics panels by severity.
+;; Each panel lists the current file's problems first, then a
+;; divider, then the rest of the workspace.
+(define-key my-keys-minor-mode-map (kbd "M-1") 'my/toggle-lsp-errors)    ;; severity 1 (error)
+(define-key my-keys-minor-mode-map (kbd "M-2") 'my/toggle-lsp-warnings)  ;; severity 2 (warning)
+(define-key my-keys-minor-mode-map (kbd "M-3") 'my/toggle-lsp-hints)     ;; severity 3+4 (info+hint)
 ;; Code folding keys (hideshow)
-(define-key my-keys-minor-mode-map (kbd "M-5") 'hs-hide-all)
-(define-key my-keys-minor-mode-map (kbd "M-6") 'hs-show-all)
+(define-key my-keys-minor-mode-map (kbd "M-4") 'hs-hide-all)
+(define-key my-keys-minor-mode-map (kbd "M-5") 'hs-show-all)
+;; Restore the "only first layer expanded" default view
+(define-key my-keys-minor-mode-map (kbd "M-l") 'my/hs-fold-on-load)
 ;; Toggle indent style (2 spaces <-> 1 tab/4 wide) in current buffer
 (define-key my-keys-minor-mode-map (kbd "M-i") 'my/toggle-indent-style)
 ;; Window resize - smart split line movement
