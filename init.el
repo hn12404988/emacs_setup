@@ -868,6 +868,87 @@ line, just delete the newline (joining with previous line)."
     (when (boundp map-sym)
       (define-key (symbol-value map-sym) (kbd "C-c") nil))))
 
+;; Forge - GitHub/GitLab issues & PRs inside Magit.
+;; Press `@' in a Magit status buffer to open the Forge popup.
+;; Auth: add a line to ~/.authinfo (chmod 600):
+;;   machine api.github.com login <user>^forge password <token>
+;; For two accounts, add one line per account and set, in each repo:
+;;   git config github.user <user>
+;; After editing ~/.authinfo run M-x auth-source-forget-all-cached.
+;;
+;; Multiple GitHub accounts via SSH host aliases: if a repo's remote uses
+;; an alias host (e.g. git@pg.github.com:... defined in ~/.ssh/config),
+;; forge does not recognize it as GitHub unless we map it here. Each entry
+;; is (GITHOST APIHOST WEBHOST CLASS). The token is still looked up under
+;; APIHOST (api.github.com) using the repo's `git config github.user'.
+(defun my/forge--topic-to-markdown (topic)
+  "Build a markdown string for TOPIC: title, original post, then every comment."
+  (let ((parts (list (format "# #%s — %s\n"
+                             (or (oref topic number) "?")
+                             (or (oref topic title) "")))))
+    ;; Original post (the topic itself).
+    (push (format "**@%s** — %s\n\n%s"
+                  (or (oref topic author) "(ghost)")
+                  (or (oref topic created) "")
+                  (or (oref topic body) "*(no description)*"))
+          parts)
+    ;; Comments.
+    (dolist (post (and (slot-boundp topic 'posts) (oref topic posts)))
+      (push "\n\n---\n" parts)
+      (push (format "**@%s** — %s\n\n%s"
+                    (or (oref post author) "(ghost)")
+                    (or (oref post created) "")
+                    (or (oref post body) ""))
+            parts))
+    (mapconcat #'identity (nreverse parts) "\n")))
+
+(defun my/forge-preview-rich ()
+  "Render the issue/PR at point (body + all comments) with rich-cli.
+Mirrors `my/dired-preview-markdown-rich': stitches the topic's markdown
+into one document, pipes it through render-md.py, and shows the
+ANSI-colored result. Bound to `M' on forge topic rows so it works in
+the Magit status buffer."
+  (interactive)
+  (require 'forge)
+  (let ((topic (forge-current-topic)))
+    (unless topic (user-error "No issue or pull-request at point"))
+    (let ((buf (get-buffer-create "*forge-rich-preview*"))
+          (md  (my/forge--topic-to-markdown topic)))
+      (switch-to-buffer buf)
+      (delete-other-windows)
+      (display-line-numbers-mode -1)
+      (setq-local truncate-lines t)
+      (let ((width  (max 60 (- (window-body-width) 10)))
+            (inhibit-read-only t)
+            (tmpfile (make-temp-file "forge-rich-" nil ".md")))
+        (unwind-protect
+            (progn
+              (with-temp-file tmpfile (insert md))
+              (erase-buffer)
+              ;; See my/rich-render for why both COLUMNS and TERM must be set.
+              (with-environment-variables (("COLUMNS" (number-to-string width))
+                                           ("TERM" "xterm-256color"))
+                (call-process "python3" nil t nil
+                              (expand-file-name "render-md.py" "~/willy/emacs_setup/")
+                              tmpfile))
+              (insert (xterm-color-filter
+                       (delete-and-extract-region (point-min) (point-max))))
+              (goto-char (point-min))
+              (special-mode))
+          (delete-file tmpfile))))))
+
+(use-package forge
+  :after magit
+  :config
+  (add-to-list 'forge-alist
+               '("pg.github.com" "api.github.com"
+                 "github.com" forge-github-repository))
+  ;; Shift-M on an issue/PR row → rich-rendered preview (like dired's M).
+  ;; Per-section keymaps only fire when point is on that section type,
+  ;; so magit's global M (remote popup) is unaffected elsewhere.
+  (define-key forge-issue-section-map   (kbd "M") #'my/forge-preview-rich)
+  (define-key forge-pullreq-section-map (kbd "M") #'my/forge-preview-rich))
+
 ;; diff-hl - git diff indicators in the fringe (like VS Code's gutter colors)
 (use-package diff-hl
   :hook ((after-init . global-diff-hl-mode)
