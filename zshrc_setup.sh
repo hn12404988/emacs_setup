@@ -493,6 +493,45 @@ m6scp() {
 >>>>>>> Stashed changes
 }
 
+# ---- Git user switcher (local repo only) ----
+# Switch the local repo's identity between personal (willy /
+# forsure.willy@gmail.com) and company (willie-chang /
+# willie.chang@positivegrid.com). Sets THREE git config keys:
+#   user.name    — commit author name
+#   user.email   — commit author email
+#   github.user  — GitHub API login used by magit/forge to pick the
+#                  matching token line from ~/.authinfo. Without this,
+#                  forge-pull errors with "Cannot determine username;
+#                  `github.api.github.com.user' and `github.user' are
+#                  both unset" when ~/.authinfo has more than one
+#                  login under machine api.github.com.
+# Writes to the local .git/config only, so it never touches global
+# config. Outside a git repo, git will error with "not in a git
+# directory" — expected.
+#   gituser willy   — set personal identity
+#   gituser willie  — set company identity
+#   gituser         — print usage + current user.name/user.email/github.user
+gituser() {
+  case "$1" in
+    willy)
+      git config user.name "willy"
+      git config user.email "forsure.willy@gmail.com"
+      git config github.user "willy"
+      ;;
+    willie)
+      git config user.name "willie-chang"
+      git config user.email "willie.chang@positivegrid.com"
+      git config github.user "willie-chang"
+      ;;
+    *)
+      echo "usage: gituser willy|willie"
+      echo "current: $(git config user.name) <$(git config user.email)> (github.user=$(git config github.user))"
+      return 1
+      ;;
+  esac
+  echo "set: $(git config user.name) <$(git config user.email)> (github.user=$(git config github.user))"
+}
+
 export EDITOR='emacsclient -nw'
 
 # ---- Check Point VPN CLI (see section 10 for install) ----
@@ -734,6 +773,11 @@ export EDITOR='emacsclient -nw'
 =======
 # m6scp SRC DST  — scp a local file or directory to the m6 machine (uses -r)
 >>>>>>> Stashed changes
+# gituser willy  — set local user.name/user.email/github.user for personal account
+#                  (user.name=willy, user.email=forsure.willy@gmail.com, github.user=willy)
+# gituser willie — set local user.name/user.email/github.user for company account
+#                  (user.name=willie-chang, user.email=willie.chang@positivegrid.com, github.user=willie-chang)
+# gituser        — print usage + current local user.name/user.email/github.user
 # pg info        — Show VPN status (macOS trac)
 # pg connect     — Connect to VPN (macOS trac)
 # pg disconnect  — Disconnect VPN (macOS trac)

@@ -857,6 +857,10 @@ line, just delete the newline (joining with previous line)."
   :hook ((magit-mode . visual-line-mode))
   :custom
   (magit-display-buffer-function #'magit-display-buffer-fullframe-status-v1)
+  ;; Expand fully-untracked directories into individual files so TAB on
+  ;; each file shows its content. Default `t' collapses them to a single
+  ;; folder line with no body, making TAB appear broken.
+  (magit-status-show-untracked-files 'all)
   :config
   ;; Magit attaches section keymaps via text properties, which outrank
   ;; emulation-mode-map-alists. Strip C-c in magit maps so the global
