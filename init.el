@@ -811,7 +811,30 @@ line, just delete the newline (joining with previous line)."
 (define-key my-keys-minor-mode-map (kbd "M-s") 'scroll-up-command)
 (define-key my-keys-minor-mode-map (kbd "M-w") 'smart-scroll-up)
 (define-key my-keys-minor-mode-map (kbd "C-j") 'newline-and-indent)
-(define-key my-keys-minor-mode-map (kbd "C-c") 'my-kill-ring-save)
+;; C-c semantics: copy when a region is active, otherwise let the
+;; major/section keymap handle C-c (so forge's C-c C-c list menu,
+;; C-c RET item menu, magit's C-c bindings, comint's C-c C-c, etc.
+;; all still work when no region is selected).
+;;
+;; We use `key-translation-map' because the decision needs to happen
+;; BEFORE normal keymap lookup. Forge/magit attach section keymaps via
+;; text properties (highest lookup priority), and those section maps
+;; inherit `C-c' as a prefix from `forge-common-map' / magit maps.
+;; Trying a `menu-item :filter' that returns nil for the no-region
+;; case does NOT reliably walk into the parent keymap on every Emacs
+;; build (verified empirically here — `C-c C-c' landed unbound), so we
+;; sidestep the whole keymap-priority puzzle. When a region is active
+;; we rewrite C-c to a private event bound to copy; when no region we
+;; return nil and the key sequence is looked up exactly as forge/magit
+;; expect.
+(defun my/c-c-translation (_prompt)
+  "Rewrite C-c to a private copy event when a region is active.
+Returns nil otherwise, leaving the original C-c untouched so
+forge/magit's `C-c …' prefix keys keep working."
+  (and (use-region-p) [my-copy-event]))
+
+(define-key key-translation-map (kbd "C-c") #'my/c-c-translation)
+(global-set-key [my-copy-event] #'my-kill-ring-save)
 (define-key my-keys-minor-mode-map (kbd "C-v") 'my-smart-paste)
 (define-key my-keys-minor-mode-map (kbd "C-x k") 'kill-current-buffer)
 (define-key my-keys-minor-mode-map (kbd "C-x C-f") 'my/find-file-smart)
@@ -860,17 +883,7 @@ line, just delete the newline (joining with previous line)."
   ;; Expand fully-untracked directories into individual files so TAB on
   ;; each file shows its content. Default `t' collapses them to a single
   ;; folder line with no body, making TAB appear broken.
-  (magit-status-show-untracked-files 'all)
-  :config
-  ;; Magit attaches section keymaps via text properties, which outrank
-  ;; emulation-mode-map-alists. Strip C-c in magit maps so the global
-  ;; C-c → my-kill-ring-save wins inside magit buffers/sections.
-  (dolist (map-sym '(magit-mode-map magit-section-mode-map
-                     magit-status-mode-map magit-revision-mode-map
-                     magit-diff-mode-map magit-log-mode-map
-                     magit-file-section-map magit-hunk-section-map))
-    (when (boundp map-sym)
-      (define-key (symbol-value map-sym) (kbd "C-c") nil))))
+  (magit-status-show-untracked-files 'all))
 
 ;; Forge - GitHub/GitLab issues & PRs inside Magit.
 ;; Press `@' in a Magit status buffer to open the Forge popup.
