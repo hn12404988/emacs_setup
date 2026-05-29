@@ -1,0 +1,15 @@
+[Unit]
+Description=Local rkllm /infill server (Qwen2.5-Coder-1.5B on RK3588 NPU)
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/m6/willy/emacs_setup/local-llm
+ExecStart=/usr/bin/python3 /home/m6/willy/emacs_setup/local-llm/server.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

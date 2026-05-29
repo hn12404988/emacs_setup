@@ -560,7 +560,9 @@ divider, then problems for every other file in the workspace."
 (with-eval-after-load 'dired
   (require 'dired-x)  ;; enables C-x C-j (dired-jump) to open Dired on current file's dir
   (setq dired-kill-when-opening-new-dired-buffer t)
-  (define-key dired-mode-map (kbd "M") #'my/dired-preview-markdown-rich))
+  (define-key dired-mode-map (kbd "M") #'my/dired-preview-markdown-rich)
+  ;; "q" goes up to the parent directory (no need to move to ".." and hit RET).
+  (define-key dired-mode-map (kbd "q") #'dired-up-directory))
 
 ;; Hide file details (permissions, owner, group, size, date) in dired by default.
 ;; Press "(" inside a dired buffer to toggle them back on when needed.
@@ -1083,7 +1085,7 @@ the Magit status buffer."
 
 
 ;; Inline ghost text suggestions (Cursor-style, FIM via local rkllm shim).
-;; Backend: server.py in /home/m6/willy/local-llm/ — start with ./start.sh.
+;; Backend: server.py in /home/m6/willy/emacs_setup/local-llm/ — start with ./start.sh.
 ;; The plugin source lives in this same repo, loaded directly (no straight clone).
 (use-package inline-suggestion
   :straight nil
