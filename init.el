@@ -968,6 +968,92 @@ the Magit status buffer."
   (define-key forge-issue-section-map   (kbd "M") #'my/forge-preview-rich)
   (define-key forge-pullreq-section-map (kbd "M") #'my/forge-preview-rich))
 
+;; LLM commit-message generation (local-llm /commit endpoint).
+;; In a Magit commit buffer, C-x c sends the staged diff (git diff --cached)
+;; to the local LLM server and inserts the returned one-line message at the
+;; top of the buffer. The server (local-llm/server.py) lazy-loads a larger
+;; instruction-tuned model on first use, so the first call after an idle gap
+;; pays a cold start (~10s); warm calls are quick. Bound only in the commit
+;; buffer (C-x c sits one Ctrl-hold from C-x C-c = quit Emacs).
+(defvar my/llm-commit-url "http://localhost:8080/commit"
+  "Endpoint that turns a git diff into a commit message.")
+
+(defun my/llm--escape-non-ascii (str)
+  "Replace non-ASCII chars in STR with \\uXXXX escapes.
+Keeps the HTTP request body ASCII-only (avoids Emacs Bug#23750,
+the same workaround used by inline-suggestion.el)."
+  (replace-regexp-in-string
+   "[^[:ascii:]]"
+   (lambda (ch) (format "\\u%04x" (string-to-char ch)))
+   str nil t))
+
+(defun my/llm--staged-diff ()
+  "Return the staged diff (git diff --cached) as a string, or nil if empty."
+  (let ((default-directory (or (and (fboundp 'magit-toplevel) (magit-toplevel))
+                               default-directory)))
+    (with-temp-buffer
+      (if (and (= 0 (call-process "git" nil t nil "diff" "--cached" "--no-color"))
+               (> (buffer-size) 0))
+          (buffer-string)
+        nil))))
+
+(defun my/llm--commit-callback (status target)
+  "Handle the /commit HTTP response; insert the message into TARGET buffer."
+  (let ((http-buf (current-buffer)) msg err)
+    (unwind-protect
+        (condition-case e
+            (progn
+              (when (plist-get status :error)
+                (error "request failed: %s" (plist-get status :error)))
+              (goto-char (point-min))
+              (unless (re-search-forward "^HTTP/[0-9.]+ 200" nil t)
+                (error "server returned non-200"))
+              (goto-char (if (and (boundp 'url-http-end-of-headers)
+                                  url-http-end-of-headers)
+                             url-http-end-of-headers
+                           (point-min)))
+              (let* ((json-object-type 'alist)
+                     (resp (json-read))
+                     (m (alist-get 'message resp))
+                     (server-err (alist-get 'error resp)))
+                (cond
+                 (server-err (error "server error: %s" server-err))
+                 ((and m (not (string-empty-p (string-trim m))))
+                  (setq msg (string-trim m)))
+                 (t (error "empty message")))))
+          (error (setq err (error-message-string e))))
+      (when (buffer-live-p http-buf) (kill-buffer http-buf)))
+    (if msg
+        (when (buffer-live-p target)
+          (with-current-buffer target
+            (save-excursion
+              (goto-char (point-min))
+              (insert msg "\n"))
+            (message "Commit message inserted")))
+      (message "LLM commit message failed: %s" (or err "unknown error")))))
+
+(defun my/llm-commit-message ()
+  "Generate a commit message from staged changes and insert it at the top."
+  (interactive)
+  (let ((diff (my/llm--staged-diff)))
+    (unless diff
+      (user-error "No staged changes to summarize"))
+    (let* ((target (current-buffer))
+           (json-body (json-encode `(("diff" . ,diff))))
+           (url-request-method "POST")
+           (url-request-extra-headers '(("Content-Type" . "application/json")))
+           (url-request-data
+            (encode-coding-string (my/llm--escape-non-ascii json-body) 'utf-8))
+           (url-show-status nil))
+      (message "Generating commit message… (first call after idle is slower)")
+      (url-retrieve my/llm-commit-url
+                    (lambda (status) (my/llm--commit-callback status target))
+                    nil t t))))
+
+;; Bind only in the commit buffer.
+(with-eval-after-load 'git-commit
+  (define-key git-commit-mode-map (kbd "C-x c") #'my/llm-commit-message))
+
 ;; diff-hl - git diff indicators in the fringe (like VS Code's gutter colors)
 (use-package diff-hl
   :hook ((after-init . global-diff-hl-mode)
