@@ -1,3 +1,4 @@
 models/
 lib/*.so
 .claude/settings.local.json
+__pycache__/

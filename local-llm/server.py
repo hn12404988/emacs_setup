@@ -1,13 +1,27 @@
 #!/usr/bin/env python3
-"""rkllm /infill shim — translates llama.cpp FIM API to Rockchip rkllm runtime.
+"""rkllm shim — translates a small HTTP API to the Rockchip rkllm runtime.
 
-POST /infill
-  request:  {"input_prefix": str, "input_suffix": str,
-             "n_predict": int, "temperature": float, "stream": false}
-  response: {"content": str}
+Endpoints
+  POST /infill   (FIM code completion, used by Emacs inline-suggestion)
+    request:  {"input_prefix": str, "input_suffix": str, "n_predict": int}
+    response: {"content": str}
 
-Pinned to rkllm runtime v1.1.2 — struct layouts and the ABI here track that
-release. Upgrading librkllmrt.so requires re-checking rkllm.h.
+  POST /commit   (git commit-message generation, used by Emacs C-x c)
+    request:  {"diff": str, "max_tokens": int (optional)}
+    response: {"message": str}
+
+Models are loaded lazily and freed after an idle TTL (see ModelSpec / _reaper),
+so an idle daemon holds ~no model memory. Two models are served: a small base
+FIM model for /infill and a larger Coder-Instruct model for /commit. The RK3588
+NPU holds only ONE model at a time (loading a second model while one is resident
+fails to allocate NPU memory and crashes), so this is a single-slot cache:
+loading a model first frees any other. A single lock serializes load / run /
+destroy, and the NPU runs one inference at a time.
+
+Pinned to rkllm runtime v1.1.4 — struct layouts and the ABI here track that
+release. (The v1.1.2 and v1.1.4 rkllm.h headers are byte-identical, so the
+ctypes layout below is unchanged from the 1.1.2 era.) Upgrading librkllmrt.so
+again requires re-checking rkllm.h.
 """
 
 import ctypes
@@ -15,11 +29,12 @@ import json
 import re
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 # Qwen special-token markers that occasionally leak through skip_special_token
-# in rkllm v1.1.2 (notably the FIM ones). Stripped post-decode as a safety net.
+# (notably the FIM ones). Stripped post-decode as a safety net.
 _SPECIAL_TOKEN_RE = re.compile(
     r"<\|(?:fim_(?:prefix|suffix|middle|pad)"
     r"|repo_name|file_sep|endoftext|im_(?:start|end))\|>"
@@ -27,21 +42,49 @@ _SPECIAL_TOKEN_RE = re.compile(
 
 HERE = Path(__file__).resolve().parent
 LIB_PATH = HERE / "lib" / "librkllmrt.so"
-MODEL_PATH = HERE / "models" / "Qwen2.5-Coder-1.5B-rk3588-w8a8-opt-1-hybrid-ratio-0.0.rkllm"
+MODELS = HERE / "models"
+
 HOST, PORT = "127.0.0.1", 8080
 
-MAX_CONTEXT_LEN = 2048
-MAX_NEW_TOKENS = 100  # hard cap per request; runtime sets this at init time
+# --- FIM model (fast, base Qwen2.5-Coder-1.5B) -----------------------------
+FIM_MODEL_PATH = MODELS / "Qwen2.5-Coder-1.5B-rk3588-w8a8-opt-1-hybrid-ratio-0.0.rkllm"
+FIM_CONTEXT_LEN = 2048
+FIM_MAX_NEW_TOKENS = 100          # hard cap per request
+FIM_TTL = 30 * 60                 # evict after 30 min idle (keeps warm in a session)
+# Qwen2.5-Coder ids that should halt FIM generation:
+#   151643 <|endoftext|>, 151645 <|im_end|>, 151662 <|fim_pad|>, 151664 <|file_sep|>
+FIM_STOP_IDS = frozenset({151643, 151645, 151662, 151664})
 
-# Qwen2.5-Coder special token ids that should halt generation in FIM mode.
-# Source: Qwen/Qwen2.5-Coder-1.5B/tokenizer_config.json
-#   151643 <|endoftext|>, 151645 <|im_end|>,
-#   151662 <|fim_pad|>,   151664 <|file_sep|>
-STOP_TOKEN_IDS = {151643, 151645, 151662, 151664}
+# --- Commit model (Qwen2.5-Coder-3B-Instruct, instruction-tuned) -----------
+COMMIT_MODEL_PATH = MODELS / "Qwen2.5-Coder-3B-Instruct.rkllm"
+COMMIT_CONTEXT_LEN = 4096
+COMMIT_MAX_NEW_TOKENS = 96        # a commit subject is short; this is the ceiling
+COMMIT_TTL = 10 * 60              # evict after 10 min idle (commits are infrequent)
+MAX_DIFF_CHARS = 6000             # trim large diffs to protect prefill / latency
+# Chat-mode stop ids: 151643 <|endoftext|>, 151645 <|im_end|>
+CHAT_STOP_IDS = frozenset({151643, 151645})
+
+# Hardcoded system prompt for commit-message generation. Edit this to tune the
+# style of generated messages — it is the single place that controls them.
+COMMIT_SYSTEM_PROMPT = (
+    "You are a tool that writes git commit messages. "
+    "You are given a git diff of the staged changes. "
+    "Write ONE concise commit subject line that summarizes what the change does. "
+    "Rules: use the imperative mood (e.g. 'Add', 'Fix', 'Refactor'); "
+    "keep it under ~70 characters; no trailing period; "
+    "use a Conventional Commits prefix (feat:, fix:, refactor:, docs:, chore:, "
+    "test:, perf:) when it clearly fits. "
+    "Write the WHOLE message on a SINGLE line — no line breaks, no body. "
+    "The prefix and the description go on the same line, e.g. "
+    "'fix: handle empty input' (never the prefix alone on its own line). "
+    "Output ONLY the commit message line — no quotes, no explanation, no code fences."
+)
+
+REAPER_INTERVAL = 60              # seconds between idle-eviction sweeps
 
 
 # ---------------------------------------------------------------------------
-# ctypes mappings for rkllm v1.1.2
+# ctypes mappings for rkllm v1.1.4 (identical layout to v1.1.2)
 # ---------------------------------------------------------------------------
 
 LLMHandle = ctypes.c_void_p
@@ -172,15 +215,16 @@ rkllm.rkllm_abort.restype = ctypes.c_int
 
 
 # ---------------------------------------------------------------------------
-# Inference state — single context, serialized by _inf_lock
+# Inference state — one inference at a time, serialized by _lock
 # ---------------------------------------------------------------------------
 
-_inf_lock = threading.Lock()
-_handle = LLMHandle()
-_chunks: list[str] = []
+_lock = threading.Lock()          # serializes load / run / destroy across models
+_chunks: list[str] = []           # output token strings for the in-flight run
 _aborted = False
 _token_count = 0
-_max_tokens = MAX_NEW_TOKENS  # per-request cap, set in _run_fim
+_max_tokens = 0                   # per-request abort cap, set in _generate
+_active_handle = LLMHandle()      # handle of the currently-running model (for abort)
+_active_stop_ids = frozenset()    # stop-token ids for the currently-running model
 
 
 @LLMResultCallback
@@ -195,41 +239,91 @@ def _on_result(result_ptr, _userdata, state):
         _chunks.append(res.text.decode("utf-8", errors="replace"))
     _token_count += 1
     hit_cap = _token_count >= _max_tokens
-    hit_stop = res.token_id in STOP_TOKEN_IDS
+    hit_stop = res.token_id in _active_stop_ids
     if (hit_cap or hit_stop) and not _aborted:
         _aborted = True
-        rkllm.rkllm_abort(_handle)
+        rkllm.rkllm_abort(_active_handle)
 
 
-def _init_runtime() -> None:
-    if not LIB_PATH.exists():
-        sys.exit(f"librkllmrt.so missing at {LIB_PATH}")
-    if not MODEL_PATH.exists():
-        sys.exit(f"model missing at {MODEL_PATH}")
-    param = rkllm.rkllm_createDefaultParam()
-    param.model_path = str(MODEL_PATH).encode()
-    param.max_context_len = MAX_CONTEXT_LEN
-    param.max_new_tokens = MAX_NEW_TOKENS
-    param.top_k = 1
-    param.top_p = 0.9
-    param.temperature = 0.0
-    param.repeat_penalty = 1.1
-    param.skip_special_token = True
-    param.is_async = False
-    rc = rkllm.rkllm_init(ctypes.byref(_handle), ctypes.byref(param), _on_result)
-    if rc != 0:
-        sys.exit(f"rkllm_init failed (rc={rc})")
-    print(f"[rkllm] loaded {MODEL_PATH.name}", flush=True)
+# ---------------------------------------------------------------------------
+# Model manager — lazy load, idle-TTL eviction
+# ---------------------------------------------------------------------------
+
+class ModelSpec:
+    """A model the server can serve, loaded on demand and freed when idle."""
+
+    def __init__(self, name, model_path, max_context_len, max_new_tokens, stop_ids, ttl):
+        self.name = name
+        self.model_path = model_path
+        self.max_context_len = max_context_len
+        self.max_new_tokens = max_new_tokens
+        self.stop_ids = stop_ids
+        self.ttl = ttl
+        self.handle = None            # LLMHandle once loaded, else None
+        self.last_used = 0.0
+
+    def load(self):
+        """rkllm_init this model. Caller must hold _lock."""
+        if not self.model_path.exists():
+            raise RuntimeError(f"model missing at {self.model_path}")
+        handle = LLMHandle()
+        param = rkllm.rkllm_createDefaultParam()
+        param.model_path = str(self.model_path).encode()
+        param.max_context_len = self.max_context_len
+        param.max_new_tokens = self.max_new_tokens
+        param.top_k = 1
+        param.top_p = 0.9
+        param.temperature = 0.0
+        param.repeat_penalty = 1.1
+        param.skip_special_token = True
+        param.is_async = False
+        t0 = time.time()
+        rc = rkllm.rkllm_init(ctypes.byref(handle), ctypes.byref(param), _on_result)
+        if rc != 0:
+            raise RuntimeError(f"rkllm_init failed for {self.name} (rc={rc})")
+        self.handle = handle
+        print(f"[rkllm] loaded {self.name} ({self.model_path.name}) "
+              f"in {time.time() - t0:.1f}s", flush=True)
+
+    def unload(self, reason: str = "idle"):
+        """rkllm_destroy this model. Caller must hold _lock."""
+        if self.handle is not None:
+            rkllm.rkllm_destroy(self.handle)
+            self.handle = None
+            print(f"[rkllm] freed {self.name} ({reason})", flush=True)
 
 
-def _run_fim(prefix: str, suffix: str, max_tokens: int) -> str:
-    global _chunks, _aborted, _token_count, _max_tokens
-    prompt = f"<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>"
-    with _inf_lock:
+_SPECS = {
+    "fim": ModelSpec("fim", FIM_MODEL_PATH, FIM_CONTEXT_LEN, FIM_MAX_NEW_TOKENS,
+                     FIM_STOP_IDS, FIM_TTL),
+    "commit": ModelSpec("commit", COMMIT_MODEL_PATH, COMMIT_CONTEXT_LEN,
+                        COMMIT_MAX_NEW_TOKENS, CHAT_STOP_IDS, COMMIT_TTL),
+}
+
+
+def _generate(name: str, prompt: str, max_tokens: int) -> str:
+    """Run one inference on model NAME, loading it first if needed.
+
+    Serialized by _lock so the shared callback globals are safe and the NPU
+    only runs one model at a time. Special tokens are stripped from the output.
+    """
+    global _chunks, _aborted, _token_count, _max_tokens, _active_handle, _active_stop_ids
+    spec = _SPECS[name]
+    with _lock:
+        if spec.handle is None:
+            # The RK3588 NPU holds only ONE model at a time: loading a second
+            # model while another is resident fails to allocate NPU memory and
+            # segfaults. So free any other loaded model before loading this one.
+            for other in _SPECS.values():
+                if other is not spec and other.handle is not None:
+                    other.unload(f"swap -> {spec.name}")
+            spec.load()
         _chunks = []
         _aborted = False
         _token_count = 0
-        _max_tokens = max(1, min(max_tokens, MAX_NEW_TOKENS))
+        _max_tokens = max(1, min(max_tokens, spec.max_new_tokens))
+        _active_handle = spec.handle
+        _active_stop_ids = spec.stop_ids
         rkin = RKLLMInput()
         rkin.input_type = RKLLM_INPUT_PROMPT
         rkin.prompt_input = prompt.encode("utf-8")
@@ -237,10 +331,72 @@ def _run_fim(prefix: str, suffix: str, max_tokens: int) -> str:
         infer.mode = RKLLM_INFER_GENERATE
         infer.lora_params = None
         infer.prompt_cache_params = None
-        rc = rkllm.rkllm_run(_handle, ctypes.byref(rkin), ctypes.byref(infer), None)
+        rc = rkllm.rkllm_run(spec.handle, ctypes.byref(rkin), ctypes.byref(infer), None)
         if rc != 0 and not _aborted:
             raise RuntimeError(f"rkllm_run failed (rc={rc})")
+        spec.last_used = time.time()
         return _SPECIAL_TOKEN_RE.sub("", "".join(_chunks))
+
+
+def _reaper() -> None:
+    """Background thread: free any model idle longer than its TTL."""
+    while True:
+        time.sleep(REAPER_INTERVAL)
+        now = time.time()
+        with _lock:
+            for spec in _SPECS.values():
+                if spec.handle is not None and (now - spec.last_used) > spec.ttl:
+                    spec.unload()
+
+
+def _run_fim(prefix: str, suffix: str, max_tokens: int) -> str:
+    prompt = f"<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>"
+    return _generate("fim", prompt, max_tokens)
+
+
+def _clean_commit_message(text: str) -> str:
+    """Reduce raw model output to a single clean commit subject line.
+
+    Handles common instruct-model quirks: markdown code fences, a leading
+    'Commit message:' label, surrounding quotes/backticks, and a subject the
+    model split across several lines (joined back into one line). Only a blank
+    line ends the subject — a hard line break inside it is collapsed to a space.
+    """
+    t = text.strip()
+    # Drop surrounding markdown code fences (```), if present.
+    if t.startswith("```"):
+        lines = t.splitlines()
+        if lines and lines[0].lstrip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        t = "\n".join(lines).strip()
+    # First paragraph (up to the first blank line) = the subject; collapse any
+    # internal line breaks into single spaces.
+    para = []
+    for line in t.splitlines():
+        if not line.strip():
+            if para:
+                break
+            continue
+        para.append(line.strip())
+    subject = " ".join(para)
+    # Strip a leading label and any surrounding quotes/backticks.
+    subject = re.sub(r"(?i)^\s*commit message\s*:\s*", "", subject)
+    subject = subject.strip().strip("`\"'").strip()
+    return subject or t
+
+
+def _run_commit(diff: str, max_tokens: int) -> str:
+    diff = diff[:MAX_DIFF_CHARS]
+    prompt = (
+        "<|im_start|>system\n" + COMMIT_SYSTEM_PROMPT + "<|im_end|>\n"
+        "<|im_start|>user\n" + diff + "<|im_end|>\n"
+        "<|im_start|>assistant\n"
+    )
+    text = _generate("commit", prompt, max_tokens)
+    print(f"[commit] raw output: {text!r}", flush=True)   # TEMP DEBUG
+    return _clean_commit_message(text)
 
 
 # ---------------------------------------------------------------------------
@@ -264,6 +420,10 @@ class _Handler(BaseHTTPRequestHandler):
             # on every keystroke). Not an error worth logging.
             pass
 
+    def _read_json(self):
+        n = int(self.headers.get("Content-Length", "0"))
+        return json.loads(self.rfile.read(n) or b"{}")
+
     def handle_one_request(self):  # noqa: D401
         try:
             super().handle_one_request()
@@ -271,18 +431,22 @@ class _Handler(BaseHTTPRequestHandler):
             self.close_connection = True
 
     def do_POST(self):
-        if self.path != "/infill":
-            self._reply(404, {"error": "only /infill is supported"})
-            return
-        n = int(self.headers.get("Content-Length", "0"))
+        if self.path == "/infill":
+            self._do_infill()
+        elif self.path == "/commit":
+            self._do_commit()
+        else:
+            self._reply(404, {"error": "unknown endpoint (try /infill or /commit)"})
+
+    def _do_infill(self):
         try:
-            body = json.loads(self.rfile.read(n) or b"{}")
+            body = self._read_json()
         except json.JSONDecodeError as exc:
             self._reply(400, {"error": f"bad json: {exc}"})
             return
         prefix = body.get("input_prefix", "")
         suffix = body.get("input_suffix", "")
-        n_predict = int(body.get("n_predict") or MAX_NEW_TOKENS)
+        n_predict = int(body.get("n_predict") or FIM_MAX_NEW_TOKENS)
         try:
             content = _run_fim(prefix, suffix, n_predict)
         except Exception as exc:
@@ -290,9 +454,35 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._reply(200, {"content": content})
 
+    def _do_commit(self):
+        try:
+            body = self._read_json()
+        except json.JSONDecodeError as exc:
+            self._reply(400, {"error": f"bad json: {exc}"})
+            return
+        diff = body.get("diff", "")
+        if not diff.strip():
+            self._reply(400, {"error": "empty diff"})
+            return
+        max_tokens = int(body.get("max_tokens") or COMMIT_MAX_NEW_TOKENS)
+        try:
+            message = _run_commit(diff, max_tokens)
+        except Exception as exc:
+            self._reply(500, {"error": str(exc)})
+            return
+        self._reply(200, {"message": message})
+
+
+def _init_runtime() -> None:
+    if not LIB_PATH.exists():
+        sys.exit(f"librkllmrt.so missing at {LIB_PATH}")
+    # Models load lazily on first request; nothing is loaded at startup.
+    print("[rkllm] runtime ready; models load on demand", flush=True)
+
 
 def main() -> None:
     _init_runtime()
+    threading.Thread(target=_reaper, daemon=True).start()
     httpd = ThreadingHTTPServer((HOST, PORT), _Handler)
     print(f"[http] listening on http://{HOST}:{PORT}", flush=True)
     try:
@@ -300,8 +490,10 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        rkllm.rkllm_destroy(_handle)
-        print("[rkllm] destroyed", flush=True)
+        with _lock:
+            for spec in _SPECS.values():
+                spec.unload("shutdown")
+        print("[rkllm] destroyed all", flush=True)
 
 
 if __name__ == "__main__":

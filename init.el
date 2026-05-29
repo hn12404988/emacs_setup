@@ -1052,7 +1052,16 @@ the same workaround used by inline-suggestion.el)."
 
 ;; Bind only in the commit buffer.
 (with-eval-after-load 'git-commit
-  (define-key git-commit-mode-map (kbd "C-x c") #'my/llm-commit-message))
+  (define-key git-commit-mode-map (kbd "C-x c") #'my/llm-commit-message)
+  ;; Turn FIM ghost text OFF in commit buffers. The commit buffer is a
+  ;; `text-mode' buffer, so `inline-suggestion-mode' would otherwise be on and
+  ;; fire /infill as you type — which, with the server's single NPU slot,
+  ;; evicts the commit model and makes every C-x c a cold (~10s) load instead
+  ;; of a warm (~4s) one. (Code completion in a commit message is useless too.)
+  (add-hook 'git-commit-setup-hook
+            (lambda ()
+              (when (bound-and-true-p inline-suggestion-mode)
+                (inline-suggestion-mode -1)))))
 
 ;; diff-hl - git diff indicators in the fringe (like VS Code's gutter colors)
 (use-package diff-hl
