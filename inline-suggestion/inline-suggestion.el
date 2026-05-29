@@ -14,7 +14,7 @@
 ;; manage the server process.
 ;;
 ;; On this machine the server is the rkllm shim at
-;;   /home/m6/willy/local-llm/server.py
+;;   /home/m6/willy/emacs_setup/local-llm/server.py
 ;; and is managed by the systemd user unit `local-llm.service'.  See
 ;; that directory's Makefile and the project notes for setup.
 ;;
