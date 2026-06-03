@@ -49,6 +49,10 @@
 #   sudo apt update && sudo apt upgrade -y
 #   sudo apt install -y emacs-nox tmux git curl python3 wget build-essential awscli
 #
+#   # miniserve — quick static HTTP server for `serve`.
+#   # Some Debian/Armbian repos do not package it, so install via Cargo:
+#   cargo install --locked miniserve
+#
 #   # Node.js — wait for SSD (node_modules are large)
 #   # Deno — wait for SSD
 #   # Docker — wait for SSD
@@ -63,7 +67,7 @@
 #
 # --- macOS ---
 #
-#   brew install emacs tmux
+#   brew install emacs tmux miniserve
 #
 #   # tmux-256color terminfo (if missing):
 #   infocmp tmux-256color || {
@@ -296,6 +300,84 @@ export BIG_QUERY_RELEASED_TABLE_ID=transactions_released
 # . "$HOME/.deno/env"
 
 
+# ---- Quick HTML hosting over Tailscale ----
+# Requires miniserve:
+#   Debian/Armbian: cargo install --locked miniserve
+#   macOS:          brew install miniserve
+#
+# This is a function instead of an alias because it detects whether the
+# target is an HTML file or a directory containing index.html.
+#
+# Usage:
+#   serve page.html       # open http://<tailscale-ip>:8080/
+#   serve ./site          # serves ./site/index.html
+#   serve ./site 9000     # open http://<tailscale-ip>:9000/
+serve() {
+  local target="$1"
+  local port="${2:-8080}"
+  local bind="${SERVE_BIND:-0.0.0.0}"
+  local root index ts_ip url
+
+  if [ -z "$target" ]; then
+    echo "usage: serve <html-file|directory> [port]" >&2
+    return 1
+  fi
+
+  case "$port" in
+    ''|*[!0-9]*)
+      echo "serve: port must be a number: $port" >&2
+      return 1
+      ;;
+  esac
+
+  if ! command -v miniserve >/dev/null 2>&1; then
+    echo "serve: miniserve not found. Install it with: cargo install --locked miniserve" >&2
+    return 127
+  fi
+
+  if [ ! -e "$target" ]; then
+    echo "serve: no such path: $target" >&2
+    return 1
+  fi
+
+  if [ -d "$target" ]; then
+    root="$target"
+    index="index.html"
+    if [ ! -f "$root/$index" ]; then
+      echo "serve: directory does not contain index.html: $root" >&2
+      return 1
+    fi
+  elif [ -f "$target" ]; then
+    case "$target" in
+      *.html|*.htm)
+        root=$(dirname -- "$target")
+        index=$(basename -- "$target")
+        ;;
+      *)
+        echo "serve: expected an .html/.htm file or a directory: $target" >&2
+        return 1
+        ;;
+    esac
+  else
+    echo "serve: not a regular file or directory: $target" >&2
+    return 1
+  fi
+
+  if command -v tailscale >/dev/null 2>&1; then
+    ts_ip=$(tailscale ip --4 2>/dev/null | head -n 1)
+  fi
+  if [ -n "$ts_ip" ]; then
+    url="http://$ts_ip:$port/"
+  else
+    url="http://$bind:$port/"
+  fi
+
+  echo "serve: $url"
+  echo "serve: root=$root index=$index bind=$bind"
+  miniserve -i "$bind" -p "$port" --index "$index" "$root"
+}
+
+
 # ===========================================================================
 # 6. EMACS DAEMON + EMACSCLIENT (per-directory isolation)
 # ===========================================================================
@@ -366,7 +448,6 @@ ekillall() {
   done
 }
 
-<<<<<<< Updated upstream
 # Singleton "draft" daemon — always uses /tmp/edraft/ as its project root,
 # regardless of $PWD. One global daemon, not per-directory.
 #   edraft              — open the latest /tmp/edraft/notes-*.md (create if none)
@@ -484,13 +565,13 @@ edraftkillpid() {
     return 1
   fi
   echo "edraftkillpid: done"
-=======
+}
+
 # ---- Send a file or directory to the m6 machine over Tailscale SSH ----
 # Usage: m6scp <local-path> <remote-path>
 # Always uses scp -r so it works for both files and directories.
 m6scp() {
   scp -r "$1" m6@m6:"$2"
->>>>>>> Stashed changes
 }
 
 # ---- Git user switcher (local repo only) ----
@@ -742,7 +823,11 @@ export EDITOR='emacsclient -nw'
 # elist          — List all running Emacs daemons
 # ekill          — Kill the daemon for the current directory
 # ekillall       — Kill ALL running Emacs daemons
-<<<<<<< Updated upstream
+# serve FILE     — Serve an .html/.htm file over HTTP via miniserve.
+#                  Binds to 0.0.0.0 by default, so open it from another
+#                  Tailnet device as http://<tailscale-ip>:8080/.
+# serve DIR      — Serve DIR/index.html on port 8080.
+# serve PATH P   — Serve FILE or DIR on port P (e.g. serve ./site 9000).
 # edraft         — Open the latest /tmp/edraft/notes-*.md in the singleton
 #                  draft daemon. Creates a new one if none exists yet.
 # edraft <n>     — Open existing notes-<n>.md (e.g. edraft kevin).
@@ -770,9 +855,7 @@ export EDITOR='emacsclient -nw'
 #                  still alive, then cleans socket + .# locks. Use this when
 #                  the cursor in the draft frames won't move and ekilldraft
 #                  itself would block on the wedged daemon.
-=======
 # m6scp SRC DST  — scp a local file or directory to the m6 machine (uses -r)
->>>>>>> Stashed changes
 # gituser willy  — set local user.name/user.email/github.user for personal account
 #                  (user.name=willy, user.email=forsure.willy@gmail.com, github.user=willy)
 # gituser willie — set local user.name/user.email/github.user for company account
