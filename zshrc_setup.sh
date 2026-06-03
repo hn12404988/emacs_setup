@@ -613,6 +613,23 @@ gituser() {
   echo "set: $(git config user.name) <$(git config user.email)> (github.user=$(git config github.user))"
 }
 
+# ---- GitHub CLI profile aliases ----
+# gh's "active account" is global mutable state (~/.config/gh/hosts.yml),
+# so two concurrent sessions (e.g. coding agents) fight over `gh auth
+# switch`. Fix: two isolated config dirs, one login each, selected per
+# command via the official GH_CONFIG_DIR env var (`gh help environment`).
+# One-time setup per machine:
+#   gh auth token --user <company-login>  | GH_CONFIG_DIR=~/.config/gh-work     gh auth login --with-token
+#   gh auth token --user <personal-login> | GH_CONFIG_DIR=~/.config/gh-personal gh auth login --with-token
+#   (then `gh config set git_protocol ssh` under each GH_CONFIG_DIR)
+#   ghw — company gh profile
+#   ghp — personal gh profile
+# Plain `gh` keeps using the shared ~/.config/gh. Coding-agent sessions
+# pin a profile via "env": {"GH_CONFIG_DIR": ...} in each project's
+# .claude/settings.local.json instead.
+alias ghw='GH_CONFIG_DIR=$HOME/.config/gh-work command gh'
+alias ghp='GH_CONFIG_DIR=$HOME/.config/gh-personal command gh'
+
 export EDITOR='emacsclient -nw'
 
 # ---- Check Point VPN CLI (see section 10 for install) ----
