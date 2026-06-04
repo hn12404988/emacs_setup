@@ -284,6 +284,12 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
   :diminish cargo-minor-mode
   :hook (rust-mode . cargo-minor-mode))
 
+(defun my/cargo-process-build-release ()
+  "Run `cargo build --release' through cargo-process."
+  (interactive)
+  (require 'cargo-process)
+  (cargo-process--start "Build Release" "build --release"))
+
 (use-package flycheck-rust
   :hook (flycheck-mode . flycheck-rust-setup))
 
@@ -732,6 +738,13 @@ line, just delete the newline (joining with previous line)."
     (set-buffer-modified-p nil)  ;; Mark as unmodified to avoid save prompt
     (kill-buffer buffer)))
 
+(defun my/kill-current-buffer-smart ()
+  "Kill the current buffer, including its process when in `shell-mode'."
+  (interactive)
+  (if (eq major-mode 'shell-mode)
+      (kill-shell-buffer-and-process)
+    (kill-current-buffer)))
+
 ;; hide-comnt (not available in melpa, using comment-dwim instead)
 (global-set-key (kbd "C-x m") 'comment-dwim)
 
@@ -838,7 +851,7 @@ forge/magit's `C-c …' prefix keys keep working."
 (define-key key-translation-map (kbd "C-c") #'my/c-c-translation)
 (global-set-key [my-copy-event] #'my-kill-ring-save)
 (define-key my-keys-minor-mode-map (kbd "C-v") 'my-smart-paste)
-(define-key my-keys-minor-mode-map (kbd "C-x k") 'kill-current-buffer)
+(define-key my-keys-minor-mode-map (kbd "C-x k") 'my/kill-current-buffer-smart)
 (define-key my-keys-minor-mode-map (kbd "C-x C-f") 'my/find-file-smart)
 (define-key my-keys-minor-mode-map (kbd "C-M-f") 'projectile-grep)
 (define-key my-keys-minor-mode-map (kbd "C-M-l") 'hs-toggle-hiding)
@@ -854,8 +867,9 @@ forge/magit's `C-c …' prefix keys keep working."
 (define-key my-keys-minor-mode-map (kbd "M-5") 'hs-show-all)
 ;; Restore the "only first layer expanded" default view
 (define-key my-keys-minor-mode-map (kbd "M-l") 'my/hs-fold-on-load)
-;; Toggle indent style (2 spaces <-> 1 tab/4 wide) in current buffer
-(define-key my-keys-minor-mode-map (kbd "M-i") 'my/toggle-indent-style)
+;; Toggle indent style (2 spaces <-> 1 tab/4 wide) in current buffer.
+;; M-i is used by inline-suggestion below.
+(define-key my-keys-minor-mode-map (kbd "M-I") 'my/toggle-indent-style)
 ;; Window resize - smart split line movement
 (defun my/shrink-window-smart ()
   "Move split line left (side-by-side) or up (stacked)."
@@ -874,6 +888,120 @@ forge/magit's `C-c …' prefix keys keep working."
 ;; M-[ conflicts with terminal CSI prefix (ESC [), breaking Shift+Tab etc.
 (define-key my-keys-minor-mode-map (kbd "M-_") 'my/enlarge-window-smart)
 (define-key my-keys-minor-mode-map (kbd "M-+") 'my/shrink-window-smart)
+
+(defun my/save-all-buffers ()
+  "Save all modified file-visiting buffers without prompting."
+  (interactive)
+  (let ((current-prefix-arg '(4)))
+    (call-interactively #'save-some-buffers)))
+
+;; Hotkey reminder panel, using the same Transient UI as Magit/Forge.
+(use-package transient
+  :config
+  (defun my/projectile-project-available-p ()
+    "Return non-nil when Projectile sees a project here."
+    (and (fboundp 'projectile-project-p)
+         (ignore-errors (projectile-project-p))))
+
+  (defun my/lsp-mode-active-p ()
+    "Return non-nil when the current buffer has LSP active."
+    (bound-and-true-p lsp-mode))
+
+  (defun my/hs-minor-mode-active-p ()
+    "Return non-nil when hideshow is active in this buffer."
+    (bound-and-true-p hs-minor-mode))
+
+  (defun my/rust-buffer-p ()
+    "Return non-nil when the current buffer is a Rust buffer."
+    (derived-mode-p 'rust-mode))
+
+  (defun my/dired-buffer-p ()
+    "Return non-nil when the current buffer is a Dired buffer."
+    (derived-mode-p 'dired-mode))
+
+  (defun my/git-commit-buffer-p ()
+    "Return non-nil when the current buffer is a Git commit buffer."
+    (derived-mode-p 'git-commit-mode))
+
+  (transient-define-prefix my/custom-hotkeys ()
+    "Show my custom keybindings."
+    :transient-non-suffix #'transient--do-call
+    :refresh-suffixes t
+    [["Edit"
+      ("C-f" "search" isearch-forward)
+      ("C-v" "paste" my-smart-paste)
+      ("C-j" "newline" newline-and-indent)
+      ("C-k" "kill line" kill-whole-line)
+      ("M-q" "del left" delete-backward-char)
+      ("M-e" "del right" delete-forward-char)
+      ("M-DEL" "kill word" my/backward-kill-word-or-indent)
+      ("C-x m" "comment" comment-dwim)
+      ("M-I" "indent style" my/toggle-indent-style)
+      (:info "isearch C-g exit")
+      (:info "isearch RET next")]
+     ["Win / Buf"
+      ("C-M-s" "next buf" next-buffer)
+      ("C-M-w" "prev buf" previous-buffer)
+      ("C-M-d" "other win" other-window)
+      ("M-s" "page down" scroll-up-command)
+      ("M-w" "page up" smart-scroll-up)
+      ("M-_" "enlarge" my/enlarge-window-smart)
+      ("M-+" "shrink" my/shrink-window-smart)
+      (:info "vterm C-g ESC")
+      (:info "vterm S-TAB")]
+     ["C-x"
+      ("C-x ?" "this panel" my/custom-hotkeys)
+      ("C-x SPC" "set mark" set-mark-command)
+      ("C-x k" "kill buf/proc" my/kill-current-buffer-smart)
+      ("C-x C-f" "find file" my/find-file-smart)
+      ("C-x C-b" "ibuffer" ibuffer)
+      ("C-x C-s" "save all" my/save-all-buffers)
+      ("C-x g" "magit" magit-status)
+      ("C-x c" "commit msg" my/llm-commit-message
+       :inapt-if-not my/git-commit-buffer-p)
+      (:info "Forge row M preview")]
+     ["Code"
+      (:info "C-c p  Projectile")
+      ("C-M-f" "grep" projectile-grep
+       :inapt-if-not my/projectile-project-available-p)
+      ("C-M-l" "fold" hs-toggle-hiding
+       :inapt-if-not my/hs-minor-mode-active-p)
+      ("M-4" "hide all folds" hs-hide-all
+       :inapt-if-not my/hs-minor-mode-active-p)
+      ("M-5" "show all folds" hs-show-all
+       :inapt-if-not my/hs-minor-mode-active-p)
+      ("M-l" "fold level 1" my/hs-fold-on-load)
+      ("M-i" "suggestion" inline-suggestion-toggle)
+      ("M-1" "errors" my/toggle-lsp-errors
+       :inapt-if-not my/lsp-mode-active-p)
+      ("M-2" "warnings" my/toggle-lsp-warnings
+       :inapt-if-not my/lsp-mode-active-p)
+      ("M-3" "hints" my/toggle-lsp-hints
+       :inapt-if-not my/lsp-mode-active-p)]
+     ["Rust"
+      (:info "C-c copies region")
+      ("C-c C-c" "run" cargo-process-run
+       :inapt-if-not my/rust-buffer-p)
+      ("C-c C-t" "test" cargo-process-test
+       :inapt-if-not my/rust-buffer-p)
+      ("C-c C-b" "build" cargo-process-build
+       :inapt-if-not my/rust-buffer-p)
+      ("C-c C-r" "release" my/cargo-process-build-release
+       :inapt-if-not my/rust-buffer-p)
+      ("C-c C-l" "clippy" cargo-process-clippy
+       :inapt-if-not my/rust-buffer-p)
+      ("C-c C-d" "doc" cargo-process-doc
+       :inapt-if-not my/rust-buffer-p)
+      ("C-c C-f" "format" rust-format-buffer
+       :inapt-if-not my/rust-buffer-p)]
+     ["Dired"
+      ("M" "preview md" my/dired-preview-markdown-rich
+       :inapt-if-not my/dired-buffer-p)
+      ("(" "details" dired-hide-details-mode
+       :inapt-if-not my/dired-buffer-p)
+      (:info "q     up dir")]]))
+
+(define-key my-keys-minor-mode-map (kbd "C-x ?") #'my/custom-hotkeys)
 
 ;; Magit
 (use-package magit
@@ -1088,13 +1216,13 @@ the same workaround used by inline-suggestion.el)."
   (define-key rust-mode-map (kbd "C-c C-c") 'cargo-process-run)
   (define-key rust-mode-map (kbd "C-c C-t") 'cargo-process-test)
   (define-key rust-mode-map (kbd "C-c C-b") 'cargo-process-build)
-  (define-key rust-mode-map (kbd "C-c C-r") 'cargo-process-build-release)
+  (define-key rust-mode-map (kbd "C-c C-r") 'my/cargo-process-build-release)
   (define-key rust-mode-map (kbd "C-c C-l") 'cargo-process-clippy)
   (define-key rust-mode-map (kbd "C-c C-d") 'cargo-process-doc)
   (define-key rust-mode-map (kbd "C-c C-f") 'rust-format-buffer))
 
 ;; Global key settings
-(global-set-key (kbd "C-x C-s") (kbd "C-u C-x s"))
+(global-set-key (kbd "C-x C-s") #'my/save-all-buffers)
 
 ;; Free M-{ and M-} so tmux can use them for pane resize at root level.
 ;; (Emacs defaults: backward-paragraph / forward-paragraph — no longer used.)
@@ -1133,6 +1261,7 @@ the same workaround used by inline-suggestion.el)."
               (set-keymap-parent shell-my-keys-map my-keys-minor-mode-map)
               ;; Remove the C-c binding in this local map
               (define-key shell-my-keys-map (kbd "C-c") nil)
+              (define-key shell-my-keys-map (kbd "C-x k") #'kill-shell-buffer-and-process)
               ;; Use this modified keymap in shell mode
               (add-to-list 'minor-mode-overriding-map-alist
                            `(my-keys-minor-mode . ,shell-my-keys-map)))
