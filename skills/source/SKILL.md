@@ -11,7 +11,7 @@ The user invokes this skill when a topic feels like a floating label — a term,
 
 This is not a summary of the topic and not an explanation from general knowledge. It is a grounded pointer into the filesystem, told as a short narrative so the topic clicks in the user's head. Every claim must be backed by a real `file:line` that was actually found on disk.
 
-The shape borrows from `/tldr`: do not dump every match — pick the smallest set of anchors that makes the topic understandable. But unlike `/tldr`, the anchors themselves must stay precise. Precision is what makes this skill useful; storytelling is how you deliver it.
+Keep it tight: do not dump every match — pick the smallest set of anchors that makes the topic understandable, and make sure those anchors stay precise. Precision is what makes this skill useful; storytelling is how you deliver it.
 
 ## Input
 
