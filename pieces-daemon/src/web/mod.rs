@@ -1,6 +1,7 @@
 //! axum router + HTTP handlers for the pieces daemon.
 
 pub mod markdown;
+pub mod views;
 
 use axum::{Json, Router, routing::get};
 
