@@ -1,3 +1,4 @@
 .env
 *.elc
 .antigravitycli
+pieces-daemon/target/
