@@ -1,6 +1,6 @@
 ---
 name: pieces
-description: Turn on "pieces mode". Save the complete answer to a /tmp file, then explain it to the user one small piece at a time, in simple English, moving on only when the user says "next". Use after the agent has shown a wall of complex context. The mode stays on for the session until the user says stop. Do not turn this on yourself — only when the user asks.
+description: Turn on "pieces mode". Instead of dumping a wall of complex information into the chat, send it to the local pieces daemon as a JSON payload of small pieces, then point the user at a localhost web page they browse at their own pace. Questions and short answers stay in the terminal. The mode stays on for the session until the user says stop. Do not turn this on yourself — only when the user asks.
 disable-model-invocation: true
 user-invocable: true
 argument-hint: [optional: a file path, a topic, or nothing for the current context]
@@ -11,90 +11,132 @@ argument-hint: [optional: a file path, a topic, or nothing for the current conte
 ## Purpose
 
 When the user is buried under a wall of complex information — a long answer, a
-list of questions, a dense file — this skill slows everything down.
+list of questions, a dense file — this skill slows everything down. The complete
+answer is broken into small **pieces**, each one idea, and shown on a local web
+page the user flips through at their own pace.
 
-Two things make it work:
-1. The **complete** answer is saved to a file, so nothing is lost.
-2. The chat shows the idea **one small piece at a time**, in plain English, and
-   the user controls the pace by saying **"next"**.
-
-This turns on a **mode**. It stays on for the rest of the session (until the
-user says stop). While it is on, the agent does not dump walls of text into the
-chat. Big answers go to a file; the chat shows one small piece.
+This turns on a **mode**. It stays on for the rest of the session (until the user
+says stop). While it is on, the agent does not dump walls of text into the chat.
+Heavy information goes to the daemon; the chat stays light.
 
 ## When to use
 
-- Right after the agent gives a wall of complex context, options, or questions.
+- Right after the agent gives (or is about to give) a wall of complex context.
 - The user turns it on themselves. **Never turn this on by yourself.**
 
 ## What it works on (the argument — anything)
 
-- **No argument** → the most recent complex content already in the session (the
-  wall the user just received). This is the main case.
-- **A file path** → read the file; treat its content as the thing to break down.
-- **A topic or term** → the subject is that topic, grounded in the current
-  session and project.
+- **No argument** → the most recent complex content already in the session.
+- **A file path** → read the file; break its content into pieces.
+- **A topic or term** → that topic, grounded in the current session and project.
 
-## The two things that happen when the user turns it on
+## What goes where
 
-1. **Save the complete answer to a file.**
-   - Make a file: run `mktemp /tmp/pieces-XXXXXX.md` to get a unique path.
-   - Write the **complete** answer there — full detail, nothing dropped. The
-     file is the whole thing.
-   - Tell the user the path in one short line, so they can open the full version
-     any time.
+- **Heavy information → the daemon** (as pieces). The user reads it on the web page.
+- **Everything else → the terminal, unchanged.** Questions, short answers, and
+  decisions stay in the terminal the normal way. If a question needs a lot of
+  background, the background becomes pieces; only the short question stays in chat.
 
-2. **Start the piece-by-piece delivery.**
-   - Give **one** small piece, in simple English. Then **stop** and wait.
+## Step 1 — Make sure the daemon is running
 
-## The piece-by-piece protocol
+Run this in the shell. It checks health, downloads the version-pinned binary if
+needed, and starts it. The version below is bound to this skill's release.
+
+```sh
+PIECES_VERSION=0.2.0
+PIECES_PORT=8723
+PIECES_DIR="$HOME/.local/share/pieces"
+BIN="$PIECES_DIR/bin/pieces-$PIECES_VERSION"
+
+if ! curl -fsS "http://127.0.0.1:$PIECES_PORT/health" >/dev/null 2>&1; then
+  if [ ! -x "$BIN" ]; then
+    os=$(uname -s); arch=$(uname -m)
+    case "$os" in Linux) os=linux;; Darwin) os=darwin;; esac
+    case "$arch" in x86_64|amd64) arch=x86_64;; aarch64|arm64) arch=arm64;; esac
+    mkdir -p "$PIECES_DIR/bin"
+    url="https://github.com/hn12404988/emacs_setup/releases/download/v$PIECES_VERSION/pieces-$os-$arch"
+    curl -fsSL "$url" -o "$BIN" && chmod +x "$BIN"
+  fi
+  nohup "$BIN" --port "$PIECES_PORT" >> "$PIECES_DIR/daemon.log" 2>&1 &
+  for i in $(seq 1 50); do
+    curl -fsS "http://127.0.0.1:$PIECES_PORT/health" >/dev/null 2>&1 && break
+    sleep 0.1
+  done
+fi
+```
+
+## Step 2 — Make sure this project has a thread id
+
+```sh
+THREAD_FILE=".claude/pieces-thread"
+if [ ! -f "$THREAD_FILE" ]; then
+  mkdir -p .claude
+  slug=$(basename "$PWD" | tr -c 'a-zA-Z0-9' '-' | sed 's/-\{1,\}/-/g; s/^-//; s/-$//')
+  rand=$(head -c3 /dev/urandom | od -An -tx1 | tr -d ' \n')
+  echo "${slug}-${rand}" > "$THREAD_FILE"
+fi
+THREAD=$(cat "$THREAD_FILE")
+```
+
+## Step 3 — Build the payload and send it
+
+Write the payload to a temp file (a big JSON full of code does not belong on the
+command line), then POST it with the thread header.
+
+The payload schema:
+
+```jsonc
+{
+  "title": "short title of this whole answer",
+  "thumbnail": "one-line preview, shown in lists",
+  "pieces": [
+    { "index": 1, "heading": "optional short heading", "body": "markdown — code blocks ok" },
+    { "index": 2, "heading": "...", "body": "..." }
+  ]
+}
+```
+
+Send it:
+
+```sh
+# PAYLOAD_FILE is the temp file you just wrote the JSON to.
+curl -fsS -X POST "http://127.0.0.1:$PIECES_PORT/messages" \
+  -H "PIECES-THREAD: $THREAD" -H "Content-Type: application/json" \
+  --data @"$PAYLOAD_FILE"
+```
+
+The response is `{"url":"/t/<thread>/r/<id>"}`. Tell the user the full URL in one
+line, e.g. `http://127.0.0.1:8723/t/<thread>/r/<id>`.
+
+If the POST fails with a validation error, the JSON was malformed (often
+unescaped quotes or newlines inside a code body). Fix the JSON and resend.
+
+## The piece-by-piece principle (unchanged)
 
 - One piece = one idea, small enough to read in a few seconds. Short sentences,
   common words.
-- After each piece, **stop**. Do **not** move on by yourself. Do **not** give two
-  pieces at once.
-- The user says **"next"** → give the next piece.
-- The user may also ask about the current piece ("explain more", "why?"). Answer
-  that, still piece-sized and in simple words, then wait again. **Only "next"
-  moves forward.**
-- End each piece with a tiny marker so the user knows how far along they are,
-  e.g. `(piece 2 of 6)`. You know the count from how you split the file.
-- After the last piece, say it is the end, and point again to the /tmp file for
-  the full version.
+- Pieces are **numbered**. The user refers to them in the terminal ("explain
+  piece 3").
+- Pieces are the **only** version. Do **not** also write a separate full copy —
+  that wastes tokens. The pieces carry every idea, spread out and told plainly.
 
-## The persisting mode (the important part)
+## Short answers stay direct
 
-Once turned on, **pieces mode stays on for the rest of the session.**
+For a yes/no, a one-liner, or a quick confirmation, answer directly in the
+terminal. Do not push tiny answers through the daemon.
 
-- For any **complex or long** answer from then on: first write the complete
-  answer to a fresh `/tmp/pieces-XXXXXX.md`, then deliver it piece by piece, same
-  protocol.
-- For **short, simple** answers (a yes/no, a one-liner, a quick confirmation):
-  answer directly. Do not force a tiny answer through the file + piece machinery.
-- The mode ends when the user says **"stop"**, **"exit pieces mode"**, or similar
-  plain words. Then go back to normal.
+## The persisting mode
+
+Once on, pieces mode stays on for the rest of the session. For any heavy answer,
+send it to the daemon as pieces. The mode ends when the user says **"stop"**,
+**"exit pieces mode"**, or similar.
 
 ## Language rule
 
-**Output is always in simple English**, regardless of the source language.
+**Output is always in simple English**, regardless of the source language. The
+reader is not a native English speaker — short sentences, common words. Keep
+proper nouns and identifiers verbatim: `useState`, `git rebase`, file paths,
+function names, flags, numbers. Simple words — but do not drop ideas.
 
-- The reader is not a native English speaker. Short sentences. Common words.
-- Keep proper nouns and identifiers verbatim: `useState`, `git rebase`, file
-  paths, function names, flags, numbers.
-- Quoted source text can stay in its original language; the words around it are
-  simple English.
-
-Simple words — but do not drop ideas. The **file** holds every detail. The
-**pieces** still carry all the ideas, just spread out and told plainly. Never
-trade clarity for completeness, and never trade completeness for clarity.
-
-Note: this `SKILL.md` is in English because it is instructions for the
-assistant. The rule above is about the *output shown to the user*.
-
-## Style
-
-- Within a piece: tell, do not list. A piece is a few sentences, not a bullet
-  wall.
-- No meta openings ("This file is about…", "In this session we…").
-- Keep each piece small. If a "piece" needs more than ~5 sentences, it is
-  probably two pieces — split it.
+Note: this `SKILL.md` is in English because it is instructions for the assistant.
+The rule above is about the output shown to the user.
