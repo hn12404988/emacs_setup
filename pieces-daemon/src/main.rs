@@ -7,7 +7,7 @@ use clap::Parser;
 #[derive(Parser)]
 #[command(name = "pieces", version)]
 struct Args {
-    /// Port to bind on 127.0.0.1.
+    /// Port to bind on 0.0.0.0 (all interfaces).
     #[arg(long, default_value_t = 8723)]
     port: u16,
 }
@@ -24,9 +24,9 @@ async fn main() -> anyhow::Result<()> {
 
     let app = web::router(web::AppState { store });
     let listener =
-        tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, args.port)).await?;
+        tokio::net::TcpListener::bind((std::net::Ipv4Addr::UNSPECIFIED, args.port)).await?;
     let bound = listener.local_addr()?.port();
-    println!("pieces daemon on http://127.0.0.1:{bound}/  (db: {})", db.display());
+    println!("pieces daemon on 0.0.0.0:{bound} (open http://127.0.0.1:{bound}/)  (db: {})", db.display());
     axum::serve(listener, app).await?;
     Ok(())
 }
