@@ -2,10 +2,13 @@
 //! Pool with WAL + busy_timeout + foreign_keys, mirroring atdd-cli's store.
 
 use anyhow::{Context, Result};
+use crate::models::{PostBody, ResponseRow, ThreadRow};
+use chrono::Utc;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
 use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
+use uuid::Uuid;
 
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS thread (
@@ -60,11 +63,98 @@ impl Store {
         sqlx::raw_sql(SCHEMA).execute(&pool).await?;
         Ok(Store { pool })
     }
+
+    /// Append one response (with its pieces) to a thread, creating the thread
+    /// row on first use. Returns the new response id.
+    pub async fn insert_response(&self, thread_id: &str, body: &PostBody) -> Result<String> {
+        let now = Utc::now().to_rfc3339();
+        let rid = Uuid::new_v4().to_string();
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("INSERT OR IGNORE INTO thread (id, created_at) VALUES (?, ?)")
+            .bind(thread_id)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO response (id, thread_id, title, thumbnail, created_at) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&rid)
+        .bind(thread_id)
+        .bind(&body.title)
+        .bind(&body.thumbnail)
+        .bind(&now)
+        .execute(&mut *tx)
+        .await?;
+        for p in &body.pieces {
+            sqlx::query("INSERT INTO piece (response_id, idx, heading, body_md) VALUES (?, ?, ?, ?)")
+                .bind(&rid)
+                .bind(p.index)
+                .bind(&p.heading)
+                .bind(&p.body)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(rid)
+    }
+
+    pub async fn list_threads(&self) -> Result<Vec<ThreadRow>> {
+        let rows = sqlx::query_as::<_, ThreadRow>(
+            "SELECT t.id AS id, COUNT(r.id) AS response_count, \
+             COALESCE(MAX(r.created_at), t.created_at) AS last_activity \
+             FROM thread t LEFT JOIN response r ON r.thread_id = t.id \
+             GROUP BY t.id ORDER BY last_activity DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    pub async fn list_responses(&self, thread_id: &str) -> Result<Vec<ResponseRow>> {
+        let rows = sqlx::query_as::<_, ResponseRow>(
+            "SELECT id, title, thumbnail, created_at FROM response \
+             WHERE thread_id = ? ORDER BY created_at DESC, id DESC",
+        )
+        .bind(thread_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::{PieceIn, PostBody};
+
+    fn sample(title: &str) -> PostBody {
+        PostBody {
+            title: title.into(),
+            thumbnail: "one-line preview".into(),
+            pieces: vec![
+                PieceIn { index: 1, heading: Some("A".into()), body: "alpha".into() },
+                PieceIn { index: 2, heading: None, body: "beta".into() },
+            ],
+        }
+    }
+
+    #[tokio::test]
+    async fn insert_then_list() {
+        let store = Store::open_memory().await.unwrap();
+        store.insert_response("proj-abc", &sample("first")).await.unwrap();
+        store.insert_response("proj-abc", &sample("second")).await.unwrap();
+
+        let threads = store.list_threads().await.unwrap();
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, "proj-abc");
+        assert_eq!(threads[0].response_count, 2);
+
+        let responses = store.list_responses("proj-abc").await.unwrap();
+        assert_eq!(responses.len(), 2);
+        // DESC by time (ties broken by id) — both titles are present.
+        let titles: Vec<&str> = responses.iter().map(|r| r.title.as_str()).collect();
+        assert!(titles.contains(&"first") && titles.contains(&"second"));
+    }
 
     #[tokio::test]
     async fn open_memory_creates_three_tables() {
