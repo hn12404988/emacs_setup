@@ -6,27 +6,47 @@ use crate::web::markdown;
 use maud::{DOCTYPE, Markup, PreEscaped, html};
 
 const APP_CSS: &str = "\
-body{font-family:system-ui,sans-serif;max-width:46rem;margin:2rem auto;padding:0 1rem;line-height:1.6;color:#222}\
-a{color:#06c;text-decoration:none}a:hover{text-decoration:underline}\
-header.top a.brand{font-weight:600;font-size:1.1rem}\
-nav.crumbs{color:#888;margin:.5rem 0 1.5rem;font-size:.9rem}\
-ul.list{list-style:none;padding:0}ul.list li{padding:.6rem 0;border-bottom:1px solid #eee}\
-.thumb{color:#666;font-size:.9rem}\
+:root{color-scheme:dark}\
+body{font-family:system-ui,sans-serif;max-width:64rem;margin:2rem auto;padding:0 1rem;line-height:1.6;color:#c9d1d9;background:#0d1117}\
+a{color:#58a6ff;text-decoration:none}a:hover{text-decoration:underline}\
+h1,h2,h3{color:#e6edf3}\
+header.top{border-bottom:1px solid #30363d;padding-bottom:.6rem;margin-bottom:1rem}\
+header.top a.brand{font-weight:600;font-size:1.1rem;color:#e6edf3}\
+nav.crumbs{color:#8b949e;margin:.5rem 0 1.5rem;font-size:.9rem}\
+ul.list{list-style:none;padding:0}ul.list li{padding:.6rem 0;border-bottom:1px solid #30363d}\
+.thumb{color:#8b949e;font-size:.9rem}\
+.markdown-body pre{background:#161b22;padding:.8rem;border-radius:6px;overflow:auto;border:1px solid #30363d}\
+.markdown-body code{background:#161b22;padding:.1rem .3rem;border-radius:4px}\
+.markdown-body pre code{background:none;padding:0;border:none}\
+.marker{color:#8b949e;font-size:.9rem;margin-bottom:1rem}\
+.reader-layout{display:flex;gap:1.5rem;align-items:flex-start}\
+.piece-nav{flex:0 0 15rem;position:sticky;top:1rem;max-height:90vh;overflow:auto;border:1px solid #30363d;border-radius:8px;padding:.4rem}\
+.reader-main{flex:1;min-width:0}\
 .piece{display:none}.piece h2{margin-top:0}\
-.markdown-body pre{background:#f6f8fa;padding:.8rem;border-radius:6px;overflow:auto}\
-.markdown-body code{background:#f6f8fa;padding:.1rem .3rem;border-radius:4px}\
-.markdown-body pre code{background:none;padding:0}\
-.nav{margin-top:1.5rem;display:flex;gap:1rem}.nav button{font-size:1rem;padding:.4rem .9rem;cursor:pointer}\
-.marker{color:#666;font-size:.9rem;margin-bottom:1rem}";
+.nav-item{display:flex;gap:.5rem;align-items:baseline;padding:.4rem .6rem;border-radius:6px;color:#c9d1d9;cursor:pointer}\
+.nav-item:hover{background:#161b22;text-decoration:none}\
+.nav-item.active{background:#1f6feb;color:#fff}\
+.nav-num{color:#8b949e;font-variant-numeric:tabular-nums;min-width:1.2rem;text-align:right}\
+.nav-item.active .nav-num{color:#cdd9ff}\
+.nav-title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\
+.nav{margin-top:1.5rem;display:flex;gap:1rem}\
+.nav button{font-size:1rem;padding:.4rem .9rem;cursor:pointer;background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:6px}\
+.nav button:hover{background:#30363d}";
 
 const READER_JS: &str = "(function(){\
-var pieces=document.querySelectorAll('.piece');var total=pieces.length;var cur=0;\
+var pieces=document.querySelectorAll('.piece');\
+var navItems=document.querySelectorAll('.nav-item');\
+var total=pieces.length;var cur=0;\
 var marker=document.getElementById('marker');\
-function show(i){if(i<0||i>=total)return;pieces[cur].style.display='none';cur=i;\
-pieces[cur].style.display='block';marker.textContent='piece '+pieces[cur].getAttribute('data-idx')+' of '+total;}\
+function show(i){if(i<0||i>=total)return;\
+pieces[cur].style.display='none';if(navItems[cur])navItems[cur].classList.remove('active');\
+cur=i;\
+pieces[cur].style.display='block';if(navItems[cur])navItems[cur].classList.add('active');\
+marker.textContent='piece '+pieces[cur].getAttribute('data-idx')+' of '+total;}\
 var p=document.getElementById('prev');var n=document.getElementById('next');\
 if(p)p.addEventListener('click',function(){show(cur-1);});\
 if(n)n.addEventListener('click',function(){show(cur+1);});\
+navItems.forEach(function(el,idx){el.addEventListener('click',function(e){e.preventDefault();show(idx);});});\
 document.addEventListener('keydown',function(e){\
 if(e.key==='ArrowLeft')show(cur-1);if(e.key==='ArrowRight')show(cur+1);});\
 if(total>0)show(0);})();";
@@ -96,22 +116,39 @@ pub fn reader_page(thread_id: &str, response: &ResponseRow, pieces: &[PieceRow])
             a href=(format!("/t/{}", thread_id)) { (thread_id) } " › "
             (response.title)
         }
-        div.marker id="marker" {
-            @if pieces.is_empty() { "No pieces" }
-            @else { "piece " (pieces[0].idx) " of " (total) }
-        }
-        @for p in pieces {
-            div.piece data-idx=(p.idx) {
-                @match &p.heading {
-                    Some(h) => h2 { (p.idx) ". " (h) },
-                    None => h2 { "Piece " (p.idx) },
+        div.reader-layout {
+            nav.piece-nav {
+                @for (i, p) in pieces.iter().enumerate() {
+                    a.nav-item href="#" data-pos=(i) {
+                        span.nav-num { (p.idx) }
+                        span.nav-title {
+                            @match &p.heading {
+                                Some(h) => (h),
+                                None => "(untitled)",
+                            }
+                        }
+                    }
                 }
-                div.markdown-body { (markdown::render(&p.body_md)) }
             }
-        }
-        div.nav {
-            button id="prev" { "← prev" }
-            button id="next" { "next →" }
+            div.reader-main {
+                div.marker id="marker" {
+                    @if pieces.is_empty() { "No pieces" }
+                    @else { "piece " (pieces[0].idx) " of " (total) }
+                }
+                @for p in pieces {
+                    div.piece data-idx=(p.idx) {
+                        @match &p.heading {
+                            Some(h) => h2 { (p.idx) ". " (h) },
+                            None => h2 { "Piece " (p.idx) },
+                        }
+                        div.markdown-body { (markdown::render(&p.body_md)) }
+                    }
+                }
+                div.nav {
+                    button id="prev" { "← prev" }
+                    button id="next" { "next →" }
+                }
+            }
         }
         script { (PreEscaped(READER_JS)) }
     };
@@ -160,5 +197,11 @@ mod tests {
         assert!(html.contains("data-idx=\"1\""));
         assert!(html.contains("data-idx=\"2\""));
         assert!(html.contains("1. The problem")); // heading now prefixed with its real idx
+        // left vertical piece-nav: one clickable item per piece (jump-to)
+        assert!(html.contains("piece-nav"));
+        assert!(html.contains("class=\"nav-item\""));
+        assert!(html.contains("data-pos=\"0\""));
+        assert!(html.contains("data-pos=\"1\""));
+        assert!(html.contains("(untitled)")); // piece 2 has no heading
     }
 }
