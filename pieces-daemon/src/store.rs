@@ -98,6 +98,7 @@ impl Store {
         Ok(rid)
     }
 
+    /// All threads, most-recently-active first.
     pub async fn list_threads(&self) -> Result<Vec<ThreadRow>> {
         let rows = sqlx::query_as::<_, ThreadRow>(
             "SELECT t.id AS id, COUNT(r.id) AS response_count, \
@@ -110,10 +111,11 @@ impl Store {
         Ok(rows)
     }
 
+    /// All responses in a thread, newest first.
     pub async fn list_responses(&self, thread_id: &str) -> Result<Vec<ResponseRow>> {
         let rows = sqlx::query_as::<_, ResponseRow>(
             "SELECT id, title, thumbnail, created_at FROM response \
-             WHERE thread_id = ? ORDER BY created_at DESC, id DESC",
+             WHERE thread_id = ? ORDER BY created_at DESC, ROWID DESC",
         )
         .bind(thread_id)
         .fetch_all(&self.pool)
@@ -151,9 +153,9 @@ mod tests {
 
         let responses = store.list_responses("proj-abc").await.unwrap();
         assert_eq!(responses.len(), 2);
-        // DESC by time (ties broken by id) — both titles are present.
-        let titles: Vec<&str> = responses.iter().map(|r| r.title.as_str()).collect();
-        assert!(titles.contains(&"first") && titles.contains(&"second"));
+        // Newest first: "second" was inserted last, so it sorts ahead of "first".
+        assert_eq!(responses[0].title, "second");
+        assert_eq!(responses[1].title, "first");
     }
 
     #[tokio::test]
