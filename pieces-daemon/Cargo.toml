@@ -1,0 +1,31 @@
+[package]
+name = "pieces"
+version = "0.2.0"
+edition = "2021"
+license = "UNLICENSED"
+
+[[bin]]
+name = "pieces"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+axum = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+clap = { version = "4", features = ["derive"] }
+comrak = { version = "0.52", default-features = false }
+dirs = "6"
+maud = "0.27"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
