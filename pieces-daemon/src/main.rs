@@ -2,12 +2,31 @@ mod models;
 mod store;
 mod web;
 
+use clap::Parser;
+
+#[derive(Parser)]
+#[command(name = "pieces", version)]
+struct Args {
+    /// Port to bind on 127.0.0.1.
+    #[arg(long, default_value_t = 8723)]
+    port: u16,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let store = store::Store::open(std::path::Path::new("pieces.db")).await?;
+    let args = Args::parse();
+
+    let db = dirs::data_dir()
+        .ok_or_else(|| anyhow::anyhow!("cannot resolve data dir"))?
+        .join("pieces")
+        .join("pieces.db");
+    let store = store::Store::open(&db).await?;
+
     let app = web::router(web::AppState { store });
-    let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 8723)).await?;
-    println!("pieces daemon on http://127.0.0.1:8723/");
+    let listener =
+        tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, args.port)).await?;
+    let bound = listener.local_addr()?.port();
+    println!("pieces daemon on http://127.0.0.1:{bound}/  (db: {})", db.display());
     axum::serve(listener, app).await?;
     Ok(())
 }
