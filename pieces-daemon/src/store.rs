@@ -199,6 +199,30 @@ mod tests {
 
         let missing = store.get_response("proj-abc", "nope").await.unwrap();
         assert!(missing.is_none());
+
+        // A valid response id under the WRONG thread must not leak.
+        let wrong_thread = store.get_response("other-thread", &rid).await.unwrap();
+        assert!(wrong_thread.is_none(), "should not leak across threads");
+    }
+
+    #[tokio::test]
+    async fn get_response_orders_pieces_by_idx_not_insert_order() {
+        let store = Store::open_memory().await.unwrap();
+        // pieces vec is in REVERSE idx order on purpose.
+        let body = PostBody {
+            title: "ord".into(),
+            thumbnail: "t".into(),
+            pieces: vec![
+                PieceIn { index: 2, heading: None, body: "two".into() },
+                PieceIn { index: 1, heading: None, body: "one".into() },
+            ],
+        };
+        let rid = store.insert_response("th", &body).await.unwrap();
+        let (_resp, pieces) = store.get_response("th", &rid).await.unwrap().unwrap();
+        assert_eq!(pieces.len(), 2);
+        assert_eq!(pieces[0].idx, 1, "must be ordered by idx ASC, not insert order");
+        assert_eq!(pieces[0].body_md, "one");
+        assert_eq!(pieces[1].idx, 2);
     }
 
     #[tokio::test]
