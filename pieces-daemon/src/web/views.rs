@@ -23,7 +23,7 @@ const READER_JS: &str = "(function(){\
 var pieces=document.querySelectorAll('.piece');var total=pieces.length;var cur=0;\
 var marker=document.getElementById('marker');\
 function show(i){if(i<0||i>=total)return;pieces[cur].style.display='none';cur=i;\
-pieces[cur].style.display='block';marker.textContent='piece '+(cur+1)+' of '+total;}\
+pieces[cur].style.display='block';marker.textContent='piece '+pieces[cur].getAttribute('data-idx')+' of '+total;}\
 var p=document.getElementById('prev');var n=document.getElementById('next');\
 if(p)p.addEventListener('click',function(){show(cur-1);});\
 if(n)n.addEventListener('click',function(){show(cur+1);});\
@@ -59,7 +59,7 @@ pub fn thread_list_page(threads: &[ThreadRow]) -> Markup {
                 @for t in threads {
                     li {
                         a href=(format!("/t/{}", t.id)) { (t.id) }
-                        span.thumb { " — " (t.response_count) " responses" }
+                        span.thumb { " — " (t.response_count) " responses · " (t.last_activity) }
                     }
                 }
             }
@@ -72,11 +72,15 @@ pub fn response_list_page(thread_id: &str, responses: &[ResponseRow]) -> Markup 
     let body = html! {
         nav.crumbs { a href="/" { "all" } " › " (thread_id) }
         h1 { (thread_id) }
-        ul.list {
-            @for r in responses {
-                li {
-                    a href=(format!("/t/{}/r/{}", thread_id, r.id)) { (r.title) }
-                    div.thumb { (r.thumbnail) }
+        @if responses.is_empty() {
+            p.thumb { "No responses yet." }
+        } @else {
+            ul.list {
+                @for r in responses {
+                    li {
+                        a href=(format!("/t/{}/r/{}", thread_id, r.id)) { (r.title) }
+                        div.thumb { (r.thumbnail) " · " (r.created_at) }
+                    }
                 }
             }
         }
@@ -92,10 +96,16 @@ pub fn reader_page(thread_id: &str, response: &ResponseRow, pieces: &[PieceRow])
             a href=(format!("/t/{}", thread_id)) { (thread_id) } " › "
             (response.title)
         }
-        div.marker id="marker" { "piece 1 of " (total) }
+        div.marker id="marker" {
+            @if pieces.is_empty() { "No pieces" }
+            @else { "piece " (pieces[0].idx) " of " (total) }
+        }
         @for p in pieces {
-            div.piece {
-                @if let Some(h) = &p.heading { h2 { (h) } }
+            div.piece data-idx=(p.idx) {
+                @match &p.heading {
+                    Some(h) => h2 { (p.idx) ". " (h) },
+                    None => h2 { "Piece " (p.idx) },
+                }
                 div.markdown-body { (markdown::render(&p.body_md)) }
             }
         }
@@ -147,5 +157,8 @@ mod tests {
         assert!(html.contains("piece 1 of 2"));
         assert!(html.contains("id=\"prev\""));
         assert!(html.contains("id=\"next\""));
+        assert!(html.contains("data-idx=\"1\""));
+        assert!(html.contains("data-idx=\"2\""));
+        assert!(html.contains("1. The problem")); // heading now prefixed with its real idx
     }
 }

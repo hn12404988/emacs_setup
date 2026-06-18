@@ -77,6 +77,11 @@ jobs:
             asset: pieces-darwin-x86_64
     steps:
       - uses: actions/checkout@v4
+      - name: Guard — Cargo version must equal the resolved version
+        run: |
+          cv="$(grep -m1 '^version' pieces-daemon/Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
+          echo "Cargo: $cv ; resolved: ${{ needs.vars.outputs.version }}"
+          [ "$cv" = "${{ needs.vars.outputs.version }}" ] || { echo "::error::pieces-daemon/Cargo.toml version ($cv) != ${{ needs.vars.outputs.version }} — bump Cargo first"; exit 1; }
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
