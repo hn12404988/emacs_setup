@@ -6,6 +6,7 @@ use crate::models::{PieceRow, PostBody, ResponseRow, ThreadRow};
 use chrono::Utc;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
 use std::path::Path;
+#[cfg(test)]
 use std::str::FromStr;
 use std::time::Duration;
 use uuid::Uuid;
@@ -57,6 +58,7 @@ impl Store {
     }
 
     /// In-memory store for tests (single connection so it persists across calls).
+    #[cfg(test)]
     pub async fn open_memory() -> Result<Store> {
         let opts = SqliteConnectOptions::from_str("sqlite::memory:")?.foreign_keys(true);
         let pool = SqlitePoolOptions::new().max_connections(1).connect_with(opts).await?;
