@@ -33,3 +33,10 @@ pub struct ResponseRow {
     pub thumbnail: String,
     pub created_at: String,
 }
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct PieceRow {
+    pub idx: i64,
+    pub heading: Option<String>,
+    pub body_md: String,
+}

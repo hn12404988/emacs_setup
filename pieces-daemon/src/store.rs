@@ -2,7 +2,7 @@
 //! Pool with WAL + busy_timeout + foreign_keys, mirroring atdd-cli's store.
 
 use anyhow::{Context, Result};
-use crate::models::{PostBody, ResponseRow, ThreadRow};
+use crate::models::{PieceRow, PostBody, ResponseRow, ThreadRow};
 use chrono::Utc;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
 use std::path::Path;
@@ -111,6 +111,31 @@ impl Store {
         Ok(rows)
     }
 
+    /// Fetch one response (scoped by both id and thread_id) and its pieces ordered by idx.
+    /// Returns None if the response does not exist in that thread.
+    pub async fn get_response(
+        &self,
+        thread_id: &str,
+        response_id: &str,
+    ) -> Result<Option<(ResponseRow, Vec<PieceRow>)>> {
+        let resp = sqlx::query_as::<_, ResponseRow>(
+            "SELECT id, title, thumbnail, created_at FROM response \
+             WHERE id = ? AND thread_id = ?",
+        )
+        .bind(response_id)
+        .bind(thread_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(resp) = resp else { return Ok(None) };
+        let pieces = sqlx::query_as::<_, PieceRow>(
+            "SELECT idx, heading, body_md FROM piece WHERE response_id = ? ORDER BY idx ASC",
+        )
+        .bind(response_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(Some((resp, pieces)))
+    }
+
     /// All responses in a thread, newest first.
     pub async fn list_responses(&self, thread_id: &str) -> Result<Vec<ResponseRow>> {
         let rows = sqlx::query_as::<_, ResponseRow>(
@@ -156,6 +181,24 @@ mod tests {
         // Newest first: "second" was inserted last, so it sorts ahead of "first".
         assert_eq!(responses[0].title, "second");
         assert_eq!(responses[1].title, "first");
+    }
+
+    #[tokio::test]
+    async fn get_response_returns_ordered_pieces() {
+        let store = Store::open_memory().await.unwrap();
+        let rid = store.insert_response("proj-abc", &sample("only")).await.unwrap();
+
+        let got = store.get_response("proj-abc", &rid).await.unwrap();
+        let (resp, pieces) = got.expect("response should exist");
+        assert_eq!(resp.title, "only");
+        assert_eq!(pieces.len(), 2);
+        assert_eq!(pieces[0].idx, 1);
+        assert_eq!(pieces[0].heading.as_deref(), Some("A"));
+        assert_eq!(pieces[1].idx, 2);
+        assert_eq!(pieces[1].heading, None);
+
+        let missing = store.get_response("proj-abc", "nope").await.unwrap();
+        assert!(missing.is_none());
     }
 
     #[tokio::test]
