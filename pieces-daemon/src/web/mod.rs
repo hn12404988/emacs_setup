@@ -170,4 +170,23 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
+
+    #[tokio::test]
+    async fn post_with_empty_header_is_400() {
+        let app = test_app().await;
+        let payload = r#"{"title":"T","thumbnail":"th","pieces":[]}"#;
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/messages")
+                    .header("PIECES-THREAD", "")
+                    .header("content-type", "application/json")
+                    .body(Body::from(payload))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
 }
