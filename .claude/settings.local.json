@@ -3,6 +3,7 @@
     "defaultMode": "bypassPermissions"
   },
   "env": {
-    "GH_CONFIG_DIR": "/home/m6/.config/gh-personal"
+    "GH_CONFIG_DIR": "/home/m6/.config/gh-personal",
+	"PIECES_THREAD": "mental-builder"
   }
 }
