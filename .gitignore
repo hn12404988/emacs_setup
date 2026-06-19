@@ -2,3 +2,7 @@
 *.elc
 .antigravitycli
 pieces-daemon/target/
+
+# secrets (never commit)
+OPENWRT_PW
+*.exp

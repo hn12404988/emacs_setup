@@ -1,277 +1,227 @@
-# Tailscale DERP 自架紀錄
+# Tailscale DERP 計畫 — 目標：搬到家裡 R3S
 
-> 已完成上線。實際上線方案是 AWS Taipei (ap-east-2)，而非原本計畫的家裡
-> nanopi m6。Terraform IaC 在 `derp/` 目錄。
+> **本檔目標**：把 DERP 從 AWS 搬到家裡的 NanoPi R3S（軟路由），省掉雲端
+> ~$15/月。
+>
+> **目前狀態（2026-06-19 實測後結論）**：⛔ **在目前的大樓網路上做不到。**
+> R3S 在大樓的共用 NAT 後面，沒有任何方式取得 inbound 埠轉發。詳見下方
+> 「網路調查」與「卡關原因」。
+>
+> **現役 production：AWS Taipei DERP，請先別關**（理由見最後一節）。
 
-## 背景問題
+---
 
-公司網路到家裡 nanopi m6 的 Tailscale 連線**無法建立直連**，只能走
-DERP 中繼。最近的官方 DERP 在香港，延遲 81ms，SSH 明顯卡頓。
+## 背景問題（不變）
 
-## 診斷結果（`tailscale netcheck`）
+公司網路（某企業級防火牆，Symmetric NAT）到家裡 Tailscale
+node **無法 hole punching 直連**，只能走 DERP 中繼。官方最近的 DERP 在香港，
+公司端延遲 81ms，SSH 明顯卡頓。解法是「在台灣放一個自架 DERP」。
 
-| 項目 | 家裡（nanopi m6） | 公司 Wi-Fi | 意義 |
+目前用 AWS Taipei 解決了。本檔要評估「改放家裡 R3S」是否可行。
+
+---
+
+## 網路調查（2026-06-19，於 R3S 上實測）
+
+### 拓樸
+
+```
+[LAN 192.168.1.0/24]
+   │  R3S 做 NAT
+   ▼
+[R3S WAN 172.16.1.18/16]        ← 大樓 DHCP 發的私有 IP，閘道 172.16.0.254
+   │
+   ▼
+[大樓網路 172.16.0.0/16]         ← 全棟住戶共用網段
+   │  大樓路由器 (172.16.0.254) 做 NAT
+   ▼
+[公開 IP <HOME_PUBLIC_IP>]        ← HiNet 真公開 IP，全棟「共用同一個」
+   │
+   ▼
+HiNet (168.95.x) → 網際網路
+```
+
+### 實測數據
+
+| 項目 | 結果 | 來源 |
+|---|---|---|
+| R3S WAN IPv4 | `172.16.1.18/16`，gw `172.16.0.254` | `ip addr` / `ip route` |
+| 對外公開 IPv4 | `<HOME_PUBLIC_IP>`（HiNet，**非 CGNAT**） | `wget ifconfig.me` |
+| NAT 層數 | 大樓 1 層（→公開 IP），R3S 自己再 1 層 | `traceroute`：hop1 172.16.0.254 → hop3 168.95.171.166(HiNet) → 1.1.1.1 |
+| IPv6 | WAN **只有 link-local**，無全域位址，無 v6 預設路由 | `ip -6 addr` / `ip -6 route` |
+| UPnP-IGD | 大樓路由器**未提供**（"No IGD found"） | `upnpc -l` |
+| NAT-PMP / PCP | 無法測（無 client），但 UPnP 既關，推定也無 | — |
+
+---
+
+## 卡關原因（為什麼「直接做」不行）
+
+DERP 的本質是中繼站：外部 client 必須能**主動連進** derper 的 443 / 80 /
+3478 埠。要做到這件事，封包打到公開 IP `<HOME_PUBLIC_IP>` 後，必須被轉發到
+R3S。但：
+
+1. **公開 IP 在大樓路由器上，全棟共用，我們沒有管理權** → 無法手動設 port
+   forwarding。
+2. **大樓路由器沒開 UPnP / NAT-PMP** → 無法程式化自動開埠。
+3. **共用 IP 上 443 只能指向一個住戶** → 即使大樓肯設，也會跟別人衝突。
+4. **沒有全域 IPv6** → 連「用 IPv6 繞過 IPv4 NAT」這條路都沒有。
+
+### 「固定 IP / DDNS」在這裡是假議題
+
+- 缺的**不是固定 IP**，是「對 inbound 埠的控制權」。
+- DDNS 只是把 `derp.<DERP_DOMAIN>` 指到目前公開 IP；但封包打到大樓路由器後
+  仍會被丟掉（它不轉發給你）。**DDNS 在這個拓樸下完全救不了。**
+
+---
+
+## 要「解鎖」需要下列任一條件（含可行性）
+
+| # | 條件 | 怎麼做 | 可行性 |
 |---|---|---|---|
-| UDP | ✅ true | ✅ true | UDP 沒被擋 |
-| MappingVariesByDestIP | ✅ false | ❌ **true** | **公司是 Symmetric NAT** |
-| PortMapping | UPnP | （無） | 公司防火牆沒開 UPnP |
-| Public IPv4 | <HOME_PUBLIC_IP> | <COMPANY_PUBLIC_IP> | 兩端都有真的公開 IP |
-| Nearest DERP | Hong Kong 41ms | Hong Kong 81ms | 官方沒台灣節點 |
+| 1 | 大樓肯做 port forwarding | 請管理方把公開 IP 的某個**高位埠**（443 多半被佔/被擋）轉發到 `172.16.1.18`，再由 R3S 轉給 derper | 低：要協調、共用 IP 易衝突、之後可能被改掉 |
+| 2 | 取得自己的公開 IP | 拉一條中華電信線路 / 固定 IP / 把光纖盒設 bridge 給 R3S 直接拿公開 IP | 要花錢（正是你想避免的） |
+| 3 | 大樓開放可路由 IPv6（inbound 允許）| derper 綁 IPv6 即可繞過 IPv4 NAT | 不在你掌控，目前完全沒有 v6 |
 
-**結論：** 公司防火牆（某企業級防火牆）做 Symmetric
-NAT，導致 hole punching 失敗。UDP 本身沒被擋，是 NAT mapping 行為
-的問題。
+> 結論：**在不花錢、不靠大樓配合的前提下，R3S 自架 DERP 無解。**
 
-## 嘗試過的方案
+---
 
-### 方案 A：請 IT 改防火牆 NAT 行為（失敗）
-- 要求：改成 Endpoint-Independent Mapping (EIM)
-- 結果：❌ Check Point Quantum Spark 網頁 UI 沒有這個 toggle，需開
-  Check Point 技術支援 case，IT 不想處理
+## 實作步驟（⚠️ 只有在上面「解鎖條件」之一成立後才執行）
 
-### 方案 B：請 IT 做 Port Forwarding（失敗）
-- 要求：公司防火牆把 UDP 41641 轉發到我筆電內網 IP
-- 結果：❌ IT 拒絕
+假設條件 1 或 2 成立、R3S 已經能收到某個 inbound 埠（以下用 `EXTPORT`
+代表，例如 `443` 或大樓給的高位埠）。
 
-### 方案 C：自架 DERP（成功，最終採用）
-接受走 DERP 中繼的現實，但把 DERP 放在離我最近的地方（台灣 region）。
+### 0. 前置決策：憑證怎麼來
 
-**最終選 AWS Taipei (ap-east-2)，不是家裡 nanopi。** 為什麼見下節。
+derper 用 Let's Encrypt autocert（`-certmode letsencrypt`）需要 **port 80
+能被 LE 從外部連到**做 HTTP-01 驗證。
+- 若大樓只給高位埠、80 連不進來 → **HTTP-01 不能用**，改用 **DNS-01**：
+  用 `acme.sh` 或 `lego` 透過 Route 53 / Cloudflare DNS 驗證取得憑證，再用
+  `-certmode manual -certdir <憑證目錄>` 餵給 derper。
 
-## 為什麼選 AWS Taipei，不是家裡 nanopi？
+### 1. 在 R3S 上準備 derper 二進位
 
-原本計畫架在家裡 nanopi（免費、跟 Tailscale node 同一台、最後一段
-localhost），但執行過程中考慮到：
+R3S 是 `aarch64` + **musl**（OpenWrt，不是 glibc）。兩種做法：
+- **(推薦) 交叉編譯**：在別台機器用 Go 設 `GOOS=linux GOARCH=arm64`，
+  靜態編譯 `tailscale.com/cmd/derper`，把 binary 丟到 R3S
+  `/usr/local/bin/derper`。
+- 或在 R3S 上裝 Go 直接 `go install`（R3S 空間/記憶體要夠）。
 
-- 中華電信家用網路**可能擋 inbound 443/80**（要先測），擋了要改 port
-- 家裡停電 / 路由器重啟 / nanopi 掛 → DERP 跟著掛
-- 需要設 DHCP reservation、port forwarding、DDNS、cron、cert 自動續
-- 維運心智成本不低，省下的錢是 $15/月
+### 2. procd init script 啟動 derper
 
-雲端方案省事很多，AWS Taipei 剛好 2025 年開了 region，**地理上跟自
-家一樣近**，乾脆用雲端。
-
-## 失敗過的雲端嘗試（記錄一下避免下次再踩）
-
-### 嘗試 1：GCP `asia-east1`（彰化）
-- ❌ 新建的個人 GCP 帳號，所有 e2/n1/f1 family 在三個 zone 都報
-  "does not have enough resources"
-- 不是 zone 容量問題，是 **AWS 給新付費帳號的隱性 region 限制**，
-  通常 24-48h 解除
-- 在 us-central1 開 e2-micro 正常 → 確認是 region-specific
-- 在 asia-east1 開 n2-standard-2 正常 → 確認是 family-specific（e2 / n1
-  被擋）
-- 沒等下去，直接換到 AWS
-
-### 嘗試 2：DuckDNS（DNS provider）
-- ❌ Let's Encrypt 的 verification servers 從美國/歐洲 query DuckDNS
-  時 timeout（DuckDNS DNS server 從 LE 那邊看就是慢）
-- 從台灣 query DuckDNS 沒事，但 Google DNS query DuckDNS 也要 4.2 秒
-- LE 直接報 `query timed out looking up A`
-- 是 DuckDNS 長期且知名的問題，搜 "duckdns letsencrypt timeout" 滿坑
-  滿谷
-- 解法：換成註冊真的 domain + Route 53（或 Cloudflare DNS）
-
-## 最終架構
-
+`/etc/init.d/derper`（procd 格式），核心參數沿用 AWS 經驗：
 ```
-                                     ┌─────────────────────────┐
-公司筆電 ──────────────────┐         │ AWS ap-east-2 (Taipei)  │
-                          ↓         │                         │
-                ┌──────────────┐    │  ┌─────────────────┐    │
-                │  Internet    │ ───┼─→│ EC2 t3.micro    │    │
-                └──────────────┘    │  │ (derper)        │    │
-                          ↑         │  │  - :443 TLS     │    │
-家裡 nanopi (Tailscale) ──┘         │  │  - :80 ACME     │    │
-                                    │  │  - :3478 STUN   │    │
-                                    │  └─────────────────┘    │
-                                    │   EIP: <AWS_EIP>   │
-                                    └─────────────────────────┘
-                                                ↑
-                                                │ A record
-                                                │
-                                       ┌────────┴─────────┐
-                                       │ Route 53         │
-                                       │ derp.example.com │
-                                       └──────────────────┘
+/usr/local/bin/derper \
+  -a :EXTPORT_INTERNAL -http-port 80 -stun-port 3478 \
+  -hostname derp.<DERP_DOMAIN> \
+  -certmode manual -certdir /etc/derper/certs \
+  -c /etc/derper/derper.conf
 ```
+> derper（tailscale 1.98+）**必須給 `-c <config>`**，否則起不來；檔案不存在
+> 會自動建（含 server private key）。
 
-| 項目 | 值 |
-|---|---|
-| Cloud | AWS |
-| Region | `ap-east-2` (Taipei) |
-| Instance | `t3.micro` (2 vCPU burst, 1 GB RAM) |
-| AMI | Ubuntu 24.04 LTS amd64 |
-| Static IP | Elastic IP `<AWS_EIP>` |
-| Domain | `example.com` (註冊 via Route 53, .click TLD) |
-| DERP hostname | `derp.example.com` |
-| DNS | Route 53 hosted zone (auto-created with domain) |
-| TLS | Let's Encrypt via derper autocert |
-| Tailscale RegionID | `900` (custom region) |
-| IaC | Terraform，檔案在 `derp/` |
-| AWS CLI profile | `willy` (個人 IAM user, AdministratorAccess) |
+### 3. R3S 防火牆開埠 + 轉發
 
-## Terraform 檔案結構（`derp/`）
-
+```sh
+# 在 WAN zone 允許 derper 埠（traffic rule）
+uci add firewall rule
+uci set firewall.@rule[-1].name='Allow-DERP'
+uci set firewall.@rule[-1].src='wan'
+uci set firewall.@rule[-1].proto='tcp udp'
+uci set firewall.@rule[-1].dest_port='EXTPORT 3478'
+uci set firewall.@rule[-1].target='ACCEPT'
+uci commit firewall && /etc/init.d/firewall reload
 ```
-derp/
-├── main.tf                    # VPC / IGW / subnet / route table / SG /
-│                              # key pair / EIP / EC2 / Route 53 record
-├── variables.tf               # region, instance_type, hostname, zone...
-├── outputs.tf                 # eip、ssh_command、next_steps
-├── cloud-init.yaml            # VM 開機腳本（寫 systemd unit、裝 Go、
-│                              # build derper、setcap、啟動）
-├── terraform.tfvars           # 實際值（gitignored）
-├── terraform.tfvars.example   # 範本
-└── .gitignore
+（derper 跑在 R3S 本機，所以是「允許 input 到 router」，不是 DNAT 到內網。）
+
+### 4. DDNS（只有在 inbound 已通、且用動態 IP 時才需要）
+
+```sh
+apk add ddns-scripts luci-app-ddns
 ```
+- LuCI → Services → Dynamic DNS 設一筆，把 `derp.<DERP_DOMAIN>` 指到目前
+  公開 IP。
+- ⚠️ ddns-scripts **沒有乾淨的 Route 53 內建支援**；Cloudflare DNS 較容易接。
+  若沿用 Route 53，要寫一支用 AWS API 的 custom update script。
+- IP 變動時會有幾分鐘空窗 → 但 `derpMap` 設 `OmitDefaultRegions: false`，
+  空窗期自動退回官方香港 DERP，不會整個斷。
 
-## 部署流程（從零開始）
+### 5. Tailscale ACL（改 HostName + 自訂埠）
 
-### 前置
-1. AWS 帳號 + 開好 ap-east-2 region
-2. IAM user 有 AdministratorAccess
-3. 本機 aws CLI profile 設好：`aws configure --profile willy`
-   （Terraform 透過 `aws_profile = "willy"` 變數直接讀這個 profile，
-   不需要另外設 environment variable）
-4. 已註冊 domain via Route 53（hosted zone 自動建）
-
-### Apply
-```bash
-cd derp/
-cp terraform.tfvars.example terraform.tfvars
-$EDITOR terraform.tfvars   # 填 derper_hostname 和 route53_zone
-
-terraform init
-terraform apply
-```
-
-Terraform 會：
-1. 建 VPC、IGW、subnet、route table、security group
-2. 建 EC2 + 灌 cloud-init
-3. 配 EIP
-4. 在 Route 53 加 A record
-5. cloud-init 在 VM 上：裝 Go、`go install` derper、setcap、起 systemd
-
-幾分鐘後驗證：
-```bash
-curl -sS https://derp.example.com/   # 看到 derper banner page
-```
-
-### Tailscale ACL
-進 https://login.tailscale.com/admin/acls，最外層 JSON 加：
-
+`https://login.tailscale.com/admin/acls`，最外層 JSON：
 ```jsonc
-{
-  // ... 現有的 acls 等等
-  "derpMap": {
-    "OmitDefaultRegions": false,   // 保留官方 DERP 當 fallback
-    "Regions": {
-      "900": {
-        "RegionID":   900,         // 自架 region 必須 ≥900
-        "RegionCode": "twn",
-        "RegionName": "Taiwan (AWS self-hosted)",
-        "Nodes": [{
-          "Name":     "twn-1",
-          "RegionID": 900,
-          "HostName": "derp.example.com",
-        }],
-      },
-    },
-  },
+"derpMap": {
+  "OmitDefaultRegions": false,
+  "Regions": {
+    "900": {
+      "RegionID": 900, "RegionCode": "twn",
+      "RegionName": "Taiwan (home R3S)",
+      "Nodes": [{
+        "Name": "twn-1", "RegionID": 900,
+        "HostName": "derp.<DERP_DOMAIN>",
+        "DERPPort": EXTPORT          // 用大樓給的高位埠時必填
+      }]
+    }
+  }
 }
 ```
 
-按 Save。Tailscale clients 約 5 分鐘自動 refresh。
+### 6. 驗證
 
-### 驗證
-```bash
-tailscale netcheck
-# 應該看到 twn region 在列表中，延遲應該是最低的
-
-tailscale ping <peer-node>
-# output 提到 "via DERP(twn)" 就成功
+```sh
+tailscale netcheck                 # 應看到 twn region，延遲最低
+tailscale ping <peer>              # output 出現 "via DERP(twn)" 即成功
+curl -sS https://derp.<DERP_DOMAIN>:EXTPORT/   # 看到 derper banner
 ```
 
-## 維運與 Gotchas
+---
 
-### 1. derper 需要 `-c <config>` flag
-新版 derper（tailscale 1.98+）要求 `-c <path>`，沒給會跑不起來。Config
-檔不存在的話 derper 會自動建（含 server private key）。
-```
-ExecStart=/usr/local/bin/derper -a :443 -http-port 80 -stun-port 3478 \
-  -hostname derp.example.com -certmode letsencrypt \
-  -c /var/lib/derper/derper.conf -certdir /var/lib/derper
-```
+## 若家裡始終解不開：省掉 AWS 成本的替代方案
 
-### 2. cloud-init runcmd 用 `/bin/sh`，不是 bash
-踩過：`set -o pipefail` 是 bash-only，dash 會直接 fail。解法是
-runcmd 呼叫獨立 `.sh` script，script 用 `#!/bin/bash` shebang。
+| 方案 | 月費 | 延遲（公司在台灣→DERP） | 備註 |
+|---|---|---|---|
+| **A. Oracle Cloud Always Free（ARM, Tokyo/Osaka）** | **$0** | ~35–50ms | 永久免費；無台灣 region，東京最近；可重用現有 derper/cloud-init 知識 |
+| B. AWS 降規成 `t4g.micro`（ARM） | ~$12 | 最低（Taipei） | 保留最佳延遲，省一點；cloud-init 已支援 arch 自動偵測 |
+| C. 不自架，用官方香港 DERP + `mosh` | $0 | 81ms（但 mosh 本地回顯，SSH 體感不卡） | 零維運；針對「SSH 卡頓」這個真實症狀最省事 |
+| D. 維持現狀 AWS Taipei | ~$15 | 最低 | 目前 production |
 
-### 3. cloud-init 用 Terraform templatefile 渲染 → shell `$` 要 `$$`
-`${...}` 是 Terraform 變數替換，shell 變數要寫成 `$$VAR`，最終
-渲染後變回 `$VAR`。
+> 建議流程：**先別關 AWS** → 想省錢就先試 A（Oracle 東京），實測
+> `tailscale netcheck` 延遲可接受再退役 AWS；若延遲不滿意，退而用 B 或 C。
 
-### 4. EIP 從外部跟從內部（hairpin）
-AWS NAT 通常**支援 hairpin**（同一台 VM 用 public IP 連自己也行），
-但偶爾有 propagation delay。剛建好的 instance 從外部連如果 timeout，
-等 1-2 分鐘 SG 規則 propagate 完。
+---
 
-### 5. Let's Encrypt rate limit
-連續失敗會被擋。如果踩到，等 1 小時或用 `--staging` 環境測。autocert
-失敗會 cache，**改 hostname 或測試前先 `rm /var/lib/derper/acme_account+key`**
-觸發重抓。
+## 現役 production：AWS Taipei DERP（保留作為現役 + 備援）
 
-### 6. AWS Security Group description 不能有 `'`
-`description = "Let's Encrypt"` 會被 Terraform reject。改成
-`"Lets Encrypt"`。
+> 完整部署紀錄與 Terraform 在 `derp/`。以下為精簡索引，等 R3S 或替代方案
+> 驗證成功後再 `terraform destroy` 退役。
 
-### 7. 新雲端帳號可能在熱門 region 卡 capacity
-我們在 GCP `asia-east1` 踩到（所有 e2/n1 family 三個 zone 全擋）。
-AWS `ap-east-2` 沒踩到，但理論上可能。判斷方法：去比較冷門的
-region 開同樣機型，如果能開，就是 region-specific 對新帳號限制，
-等 24-48h 即可。
-
-## 安全性
-
-- DERP **只中繼已加密的 WireGuard 封包**，DERP 運營者看不到流量內容
-  （E2E 加密）
-- 但 metadata 看得到：誰連誰、流量大小、時間
-- 自架比用別人的更安全（公司電腦連回家這種敏感情境）
-- 別人公開提供的 DERP **不**建議用在公司 context
-- TLS cert 是 Let's Encrypt，自動 90 天續，autocert 處理
-
-## 月成本
-
-| 項目 | USD |
+| 項目 | 值 |
 |---|---|
-| EC2 t3.micro 24/7 (ap-east-2) | ~$10 |
-| Elastic IP（綁 running instance）| ~$3.65 |
-| Route 53 hosted zone | $0.50 |
-| EBS 10 GB gp3 | ~$1 |
-| Egress（SSH 用量輕，1–5 GB/月）| $0.20–1 |
-| **小計** | **~$15/月** |
-| Domain 續約（.click）| ~$3/年 |
+| Region / Instance | `ap-east-2`(Taipei) / `t3.micro` / Ubuntu 24.04 |
+| Static IP | EIP `<AWS_EIP>` |
+| Domain / DERP host | `<DERP_DOMAIN>`(Route 53) / `derp.<DERP_DOMAIN>` |
+| TLS | Let's Encrypt via derper autocert（90 天自動續）|
+| Tailscale RegionID | `900` |
+| IaC | Terraform，`derp/`；AWS CLI profile `willy` |
+| 月成本 | ~$15（EC2 ~$10 + EIP ~$3.65 + Route53 $0.5 + EBS ~$1 + egress）|
+| 退役 | `cd derp/ && terraform destroy`（不會刪 hosted zone / domain）|
 
-## 砍掉怎麼做
+### 可重用的 derper gotchas（搬到 R3S 一樣會踩）
 
-```bash
-cd derp/
-terraform destroy
-```
+1. derper 1.98+ **必須** `-c <config>`，否則起不來（config 不存在會自動建）。
+2. Let's Encrypt **HTTP-01 需要 port 80 從外部可達**；家裡若 80 不通改用
+   **DNS-01**（acme.sh / lego + Route53/Cloudflare），derper 用 `-certmode manual`。
+3. Let's Encrypt 有 rate limit；連續失敗先用 `--staging` 測，或砍
+   `acme_account+key` 重抓。
+4. DERP **只中繼已加密的 WireGuard 封包**，運營者看不到內容（E2E），但
+   metadata（誰連誰、量、時間）看得到 → **自架比用別人的安全**，公司情境別用
+   別人公開的 DERP。
 
-會刪掉 EC2、EIP、VPC、SG、Route 53 record，但**不會刪 hosted zone
-和 domain**（那是 Route 53 console 操作的）。
+---
 
-要連 domain 一起砍：
-1. Route 53 console → Registered domains → 關 auto-renew
-2. 等到期自動釋出（或想立刻砍找 AWS support 開 case）
+## 歷史失敗紀錄（避免重踩，保留）
 
-## 後續可能的優化
-
-- [ ] 換 ARM instance（`t4g.micro`，省 ~20% 月費；cloud-init 已支援 arch
-  auto-detect）
-- [ ] 用 AWS Systems Manager Session Manager 取代 SSH（免 22 port，免 key 管理）
-- [ ] 加 CloudWatch alarm 監看 derper service uptime
-- [ ] 把 Terraform state 從本機搬到 S3 backend（多機協作時）
-- [ ] 加 GitHub Actions 自動跑 `terraform plan` on PR
+- **GCP `asia-east1`**：新付費帳號被隱性 region/family 限制（e2/n1 三個 zone
+  全擋 capacity），24–48h 才解；直接換 AWS。
+- **DuckDNS**：Let's Encrypt 驗證 server 從美/歐 query DuckDNS timeout（知名
+  問題）→ 改用真 domain + Route 53。
