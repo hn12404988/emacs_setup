@@ -15,7 +15,6 @@ body{font-family:'JetBrains Mono',ui-monospace,'Cascadia Code','SF Mono',Menlo,C
 #matrix-rain{position:fixed;inset:0;width:100%;height:100%;z-index:0;opacity:.16;pointer-events:none}\
 body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:9;background:repeating-linear-gradient(0deg,rgba(0,0,0,.22),rgba(0,0,0,.22) 1px,transparent 1px,transparent 3px);animation:flicker 4s infinite}\
 @keyframes flicker{0%,100%{opacity:.45}48%{opacity:.5}50%{opacity:.62}52%{opacity:.5}}\
-@keyframes blink{0%,50%{opacity:1}50.01%,100%{opacity:0}}\
 ::selection{background:rgba(0,255,65,.3);color:#001b08}\
 ::-webkit-scrollbar{width:10px;height:10px}\
 ::-webkit-scrollbar-track{background:rgba(0,255,65,.04)}\
@@ -28,7 +27,6 @@ main>h1{text-transform:uppercase}main>h1::before{content:'> ';color:var(--mx);te
 header.top{display:flex;align-items:center;justify-content:space-between;gap:1rem;border-bottom:1px solid rgba(0,255,65,.35);padding-bottom:.7rem;margin-bottom:1.4rem;box-shadow:0 1px 14px rgba(0,255,65,.12)}\
 header.top a.brand{font-weight:700;font-size:1.25rem;color:var(--mx-hi);text-shadow:0 0 12px rgba(0,255,65,.9);letter-spacing:3px;text-transform:uppercase}\
 header.top a.brand::before{content:'// ';color:rgba(0,255,65,.55)}\
-header.top a.brand::after{content:' \\2588';color:var(--mx);animation:blink 1.1s step-end infinite}\
 header.top button.fs{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:2.3rem;height:2.3rem;padding:0;cursor:pointer;background:rgba(0,255,65,.06);color:var(--mx);border:1px solid rgba(0,255,65,.4);border-radius:3px;box-shadow:0 0 10px rgba(0,255,65,.18);transition:background .15s,box-shadow .15s,color .15s}\
 header.top button.fs:hover{background:rgba(0,255,65,.18);color:var(--mx-hi);box-shadow:0 0 16px rgba(0,255,65,.45)}\
 header.top button.fs:active{transform:translateY(1px)}\
