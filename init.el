@@ -1090,6 +1090,10 @@ the Magit status buffer."
   (add-to-list 'forge-alist
                '("pg.github.com" "api.github.com"
                  "github.com" forge-github-repository))
+  ;; Self-hosted Forgejo on M6 (tailnet-only); Gitea-compatible API at /api/v1.
+  (add-to-list 'forge-alist
+               '("nanopi-m6.tail2bfb5b.ts.net" "nanopi-m6.tail2bfb5b.ts.net/api/v1"
+                 "nanopi-m6.tail2bfb5b.ts.net" forge-forgejo-repository))
   ;; Shift-M on an issue/PR row → rich-rendered preview (like dired's M).
   ;; Per-section keymaps only fire when point is on that section type,
   ;; so magit's global M (remote popup) is unaffected elsewhere.

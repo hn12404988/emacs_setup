@@ -25,10 +25,17 @@ a{color:var(--mx);text-decoration:none;text-shadow:0 0 6px rgba(0,255,65,.55)}\
 a:hover{color:var(--mx-hi);text-shadow:0 0 10px rgba(0,255,65,.9);text-decoration:underline}\
 h1,h2,h3{font-family:'Share Tech Mono',ui-monospace,monospace;color:#7dffa0;text-shadow:0 0 10px rgba(0,255,65,.55);letter-spacing:.5px}\
 main>h1{text-transform:uppercase}main>h1::before{content:'> ';color:var(--mx);text-shadow:0 0 10px var(--mx)}\
-header.top{border-bottom:1px solid rgba(0,255,65,.35);padding-bottom:.7rem;margin-bottom:1.4rem;box-shadow:0 1px 14px rgba(0,255,65,.12)}\
+header.top{display:flex;align-items:center;justify-content:space-between;gap:1rem;border-bottom:1px solid rgba(0,255,65,.35);padding-bottom:.7rem;margin-bottom:1.4rem;box-shadow:0 1px 14px rgba(0,255,65,.12)}\
 header.top a.brand{font-weight:700;font-size:1.25rem;color:var(--mx-hi);text-shadow:0 0 12px rgba(0,255,65,.9);letter-spacing:3px;text-transform:uppercase}\
 header.top a.brand::before{content:'// ';color:rgba(0,255,65,.55)}\
 header.top a.brand::after{content:' \\2588';color:var(--mx);animation:blink 1.1s step-end infinite}\
+header.top button.fs{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:2.3rem;height:2.3rem;padding:0;cursor:pointer;background:rgba(0,255,65,.06);color:var(--mx);border:1px solid rgba(0,255,65,.4);border-radius:3px;box-shadow:0 0 10px rgba(0,255,65,.18);transition:background .15s,box-shadow .15s,color .15s}\
+header.top button.fs:hover{background:rgba(0,255,65,.18);color:var(--mx-hi);box-shadow:0 0 16px rgba(0,255,65,.45)}\
+header.top button.fs:active{transform:translateY(1px)}\
+header.top button.fs svg{display:block;filter:drop-shadow(0 0 4px rgba(0,255,65,.5))}\
+header.top button.fs .ic-compress{display:none}\
+header.top button.fs.on .ic-expand{display:none}\
+header.top button.fs.on .ic-compress{display:block}\
 nav.crumbs{color:var(--mx-dim);margin:.5rem 0 1.6rem;font-size:.9rem;letter-spacing:.5px}\
 nav.crumbs::before{content:'~/ ';color:rgba(0,255,65,.4)}\
 ul.list{list-style:none;padding:0}\
@@ -122,6 +129,23 @@ document.addEventListener('keydown',function(e){\
 if(e.key==='ArrowLeft')show(cur-1);if(e.key==='ArrowRight')show(cur+1);});\
 if(total>0)show(0);})();";
 
+// two corner-bracket icons inside the top-bar toggle button: expand (enter
+// full screen) shown by default, compress (exit) shown when `.on` is set.
+const FS_ICONS: &str = "\
+<svg class='ic ic-expand' viewBox='0 0 24 24' width='20' height='20' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M8 3H5a2 2 0 0 0-2 2v3'/><path d='M21 8V5a2 2 0 0 0-2-2h-3'/><path d='M3 16v3a2 2 0 0 0 2 2h3'/><path d='M16 21h3a2 2 0 0 0 2-2v-3'/></svg>\
+<svg class='ic ic-compress' viewBox='0 0 24 24' width='20' height='20' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M8 3v3a2 2 0 0 1-2 2H3'/><path d='M21 8h-3a2 2 0 0 1-2-2V3'/><path d='M3 16h3a2 2 0 0 1 2 2v3'/><path d='M16 21v-3a2 2 0 0 1 2-2h3'/></svg>";
+
+// toggle the whole document in/out of native full screen; swap the icon by
+// reacting to fullscreenchange (covers Esc and the F11 key too).
+const FS_JS: &str = "(function(){\
+var b=document.getElementById('fs-toggle');if(!b)return;\
+b.addEventListener('click',function(){\
+if(document.fullscreenElement){if(document.exitFullscreen)document.exitFullscreen();}\
+else{var e=document.documentElement;if(e.requestFullscreen)e.requestFullscreen();}});\
+document.addEventListener('fullscreenchange',function(){\
+if(document.fullscreenElement){b.classList.add('on');}else{b.classList.remove('on');}});\
+})();";
+
 fn layout(page_title: &str, body: Markup) -> Markup {
     html! {
         (DOCTYPE)
@@ -136,9 +160,15 @@ fn layout(page_title: &str, body: Markup) -> Markup {
                 style { (PreEscaped(APP_CSS)) }
             }
             body {
-                header.top { a.brand href="/" { "pieces" } }
+                header.top {
+                    a.brand href="/" { "pieces" }
+                    button.fs id="fs-toggle" type="button" title="Toggle full screen" aria-label="Toggle full screen" {
+                        (PreEscaped(FS_ICONS))
+                    }
+                }
                 main { (body) }
                 script { (PreEscaped(MATRIX_JS)) }
+                script { (PreEscaped(FS_JS)) }
             }
         }
     }
@@ -254,6 +284,10 @@ mod tests {
         assert!(html.contains("proj-abc"));
         assert!(html.contains("href=\"/t/proj-abc\""));
         assert!(html.contains("3 responses"));
+        // top-bar full-screen toggle is part of the shared layout
+        assert!(html.contains("id=\"fs-toggle\""));
+        assert!(html.contains("ic-expand"));
+        assert!(html.contains("ic-compress"));
     }
 
     #[test]
