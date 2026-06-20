@@ -81,6 +81,18 @@ uci commit
 > **IPv6 的 ping 沒關**：WAN 沒有全域 IPv6（只有 link-local），所以無所謂；而且
 > ICMPv6 是 IPv6 正常運作的必需品，不能整個擋，故保留 `Allow-ICMPv6-Input`。
 
+### 5. M6 → R3S 備份推送金鑰（2026-06-20）
+為了讓 M6 每晚把 Forgejo 備份推到 R3S（見 `forgejo_backup_r3s.md`），在 R3S 多開一把專用 SSH 金鑰：
+- `/etc/dropbear/authorized_keys` **新增第 2 行**（第 1 行 `forsure.willy@gmail.com` 的 m6 主金鑰**完全未動**）：
+  - 金鑰 = M6 上 `root` 專用的 `id_forgejo_backup`（公鑰註解 `forgejo-backup@m6`）。
+  - 限制：`no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding`（只能跑指令、不能開 shell、不能轉發）。
+  - ⚠️ 本想再加 `from="192.168.1.230"` 鎖來源 IP，但**這版 dropbear（v2025.89）不接受 `from=`**（加了整把金鑰會被拒，引號/無引號皆然），故未用。R3S 只聽 LAN，影響有限。
+- 改動前已備份：`/etc/dropbear/authorized_keys.bak-20260620`。
+- 新增 `/backup/forgejo/`（root）：存每晚 `forgejo-YYYYMMDD-HHMM.zip`，保留 30 天。
+- dropbear 連線時即時讀 authorized_keys，**不需重啟**。
+
+> 安全提醒：這是 push 模型 → 被入侵的 M6 也能刪掉 R3S 上的備份（本地副本層可接受；抗勒索靠之後的 S3）。
+
 ---
 
 ## 目前已驗證的狀態（2026-06-19）
@@ -92,6 +104,7 @@ uci commit
 - ✅ LuCI 只在 `192.168.1.1:80/443`。
 - ✅ LAN 的 DHCP / DNS 正常，全家設備上網正常。
 - ✅ M6 的 Tailscale 不受影響（它是對外主動連，不需要路由器開 inbound）。
+- ✅（2026-06-20）新增備份金鑰後仍只 LAN 可連；該金鑰可登入並寫入 `/backup/forgejo/`，`no-pty` 限制生效（要求 pty 會被拒）。
 
 **從大樓網路那側看 R3S**：ping 不回、所有 port 探測都無回應＝完全隱形。進入家裡
 網路/工作機的唯一路徑是 Tailscale。
@@ -139,3 +152,4 @@ uci commit && /etc/init.d/firewall reload && /etc/init.d/uhttpd restart \
 ## 相關檔案
 - `tailscale_derp.md` — 為什麼大樓網路上做不了 DERP + AWS 現役紀錄
 - `HiNet_DERP.md` — 之後若接 HiNet 固定 IP，在這台 R3S 自架 DERP 的計畫
+- `forgejo_backup_r3s.md` — M6→R3S Forgejo 備份（用到本機新增的備份金鑰 + `/backup/forgejo/`）

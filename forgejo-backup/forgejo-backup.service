@@ -1,0 +1,8 @@
+[Unit]
+Description=Forgejo nightly backup (dump -> R3S local copy)
+After=network-online.target forgejo.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/forgejo-backup.sh

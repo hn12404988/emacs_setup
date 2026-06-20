@@ -1,7 +1,7 @@
 # Forgejo 異地備份 — 第一步：M6 → R3S 本地副本（設計）
 
 > 紀錄日期：2026-06-20
-> 狀態：**設計已批准，待寫成 runbook**（尚未動工）
+> 狀態：**已實作並驗證**（2026-06-20，Claude 代為執行）。實作與設計的差異見文末「§11 實作結果」。
 > 設計來源：`forgejo_home_cloud.md` 第 4 節（備份）的細化
 > 相關：`R3S_hardening.md`（R3S 會多一把金鑰，需回填紀錄）、`forgejo_install_m6.md`（Forgejo 已裝好）
 
@@ -42,6 +42,11 @@ M6 → R3S 是 3-2-1 裡的**第 2 份（local copy）**，用途是「手殘刪
 每晚把這兩樣**包成一個檔**：`forgejo-YYYYMMDD-HHMM.tar.gz`（內含 `dump.zip` + `app.ini`）。
 
 > 一個檔的好處：**輪替只看一個 mtime、還原只抓一個檔**。
+
+> 🔧 **實作修正（2026-06-20，實測後）**：Forgejo **v15.0.3 的 `forgejo dump` 其實已包含 `app.ini`**
+> （dump 內的 app.ini 對 live 檔 `sha256` 完全一致），且同時含 `forgejo-db.sql`＋原始 `data/forgejo.db`＋所有 repos。
+> 也就是 **dump 本身就自包含、可獨立還原**，上面「dump 不含 app.ini」的前提對 v15 **不成立**。
+> 因此實作**不需要額外 tar 打包**——直接推那顆 dated dump：`forgejo-YYYYMMDD-HHMM.zip`，更簡單。
 
 | 內容物 | 來源 | 怎麼產生 |
 |---|---|---|
@@ -125,7 +130,7 @@ M6 root systemd timer（每晚 03:30）:
 |---|---|
 | 執行時間 | 每晚 **03:30**（`OnCalendar=*-*-* 03:30:00`，`Persistent=true`）|
 | 保留 | R3S **30 天** |
-| 打包格式 | `forgejo-YYYYMMDD-HHMM.tar.gz`（內含 `dump.zip` + `app.ini`）|
+| 打包格式 | ~~`forgejo-YYYYMMDD-HHMM.tar.gz`（含 dump.zip + app.ini）~~ → **實作改為直接推 `forgejo-YYYYMMDD-HHMM.zip`**（dump 已自包含，見 §2 修正）|
 | 執行身分 | systemd timer 以 **root**；dump 子步驟以 **git** |
 | 推送金鑰 | root 專用 `/root/.ssh/id_forgejo_backup`，公鑰加到 R3S |
 | R3S 路徑 | `/backup/forgejo/` |
@@ -145,3 +150,27 @@ M6 root systemd timer（每晚 03:30）:
 
 設計批准後 → 用 writing-plans 寫成 runbook（systemd unit + timer、備份 script、root 金鑰佈署到 R3S 的步驟、
 保留 cron 邏輯、還原演練、回填 `R3S_hardening.md`）。
+
+---
+
+## 11. 實作結果（2026-06-20，已完成並驗證）
+
+部署檔案版本控制在 `../forgejo-backup/`（`forgejo-backup.sh` / `.service` / `.timer` / `README.md`）。
+詳細步驟與輸出在 `forgejo_backup_r3s_runbook.md`。
+
+**已驗證 ✅**
+- M6 systemd `forgejo-backup.timer` 已啟用，下次 03:30 跑（`Persistent=true`）；手動與經 systemd 各跑一次皆 `status=0/SUCCESS`。
+- 備份檔出現在 `R3S:/backup/forgejo/forgejo-20260620-0952.zip`，**遠端大小與本機相符**（10,373,276 bytes）。
+- **還原演練通過**：從 R3S 取回 → 解開 → 用 dump 內原始 `data/forgejo.db` 開啟 → `integrity_check=ok`、
+  1 個 admin（willy）、4 個 repo（atdd-cli/hil/cooksy-hil/runner-smoke），與 live 一致。
+- R3S `authorized_keys` 仍保留第 1 行 m6 主金鑰；新備份金鑰可登入、可寫、`no-pty` 生效。
+
+**與設計的 3 點差異**
+1. **不打 tar 包**：v15 的 dump 已自包含 `app.ini`+DB+repos（§2 修正），故直接推 `forgejo-*.zip`。
+2. **`from=` 來源 IP 鎖未用**：這版 dropbear（v2025.89）不接受 `from=`（加了整把金鑰被拒）；
+   改用 `no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding`。R3S 只聽 LAN，影響有限。
+3. **還原走原始 DB 檔，不重放 SQL**：dump 內 `forgejo-db.sql` 使用 `unistr()`，M6 系統 `sqlite3`（3.46.1 patched）
+   不認得 → 直接 `sqlite3 < forgejo-db.sql` 會失敗。**還原請用 dump 內的原始 `data/forgejo.db`**（已驗證 ok）；
+   若要走 SQL 路徑，需換一個支援 `unistr()` 的 sqlite3。
+
+**仍未做（同 §9）**：S3 異地第 3 份 + `age` 加密。這一步只完成「本地副本」層。
