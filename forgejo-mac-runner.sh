@@ -120,7 +120,7 @@ ensure_registered() {
   if [ -z "$token" ]; then
     printf '\n  Need a registration token. In Forgejo (web):\n'
     printf '    avatar -> Settings -> Actions -> Runners -> "Create new runner" -> copy token\n'
-    printf '    (or on M6:  forgejo actions generate-runner-token)\n\n'
+    printf '    (or on M6:  sudo -u git forgejo actions generate-runner-token -c /etc/forgejo/app.ini)\n\n'
     printf "Paste registration token: "
     read -r token
   fi
