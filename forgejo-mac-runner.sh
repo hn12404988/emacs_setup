@@ -23,7 +23,12 @@ INSTANCE="https://nanopi-m6.tail2bfb5b.ts.net"
 HOST="nanopi-m6.tail2bfb5b.ts.net"
 LABELS="macos-14:host,macos:host,macos-latest:host"
 MAGICDNS_RESOLVER="100.100.100.100"
-RELEASES_API="https://code.forgejo.org/api/v1/repos/forgejo/runner/releases/latest"
+# forgejo-runner ships NO macOS binaries (its releases are Linux-only). Gitea's
+# act_runner — the project forgejo-runner was forked from — DOES ship darwin-arm64
+# /amd64 and speaks the same Actions protocol, so it registers and runs against
+# Forgejo. We use it as the macOS binary source.
+# Trade-off: compatible, not official; could drift in a future major version.
+RELEASES_API="https://gitea.com/api/v1/repos/gitea/act_runner/releases/latest"
 
 # ---- State (all per-user, self-contained) ----
 STATE_DIR="$HOME/.forgejo-runner"
@@ -57,17 +62,19 @@ reachable() { curl -fsS -o /dev/null --max-time 8 "$INSTANCE/" 2>/dev/null; }
 
 ensure_binary() {
   if [ -x "$BIN" ]; then return 0; fi
-  say "Downloading forgejo-runner for macOS ..."
+  say "Downloading Gitea act_runner (macOS, Forgejo-compatible) ..."
   local arch url
   case "$(uname -m)" in
     arm64)  arch="darwin-arm64" ;;
     x86_64) arch="darwin-amd64" ;;
     *) die "Unsupported CPU: $(uname -m)" ;;
   esac
+  # Pick the bare (uncompressed) binary whose URL ends in the arch, e.g.
+  # gitea-runner-<ver>-darwin-arm64 — not its .xz / .sha256 siblings.
   url="$(curl -fsSL "$RELEASES_API" \
         | grep -oE '"browser_download_url":"[^"]*'"$arch"'"' \
         | grep -oE 'https[^"]*' | head -1)"
-  [ -n "$url" ] || die "No $arch asset found in the latest forgejo-runner release."
+  [ -n "$url" ] || die "No $arch asset found in the latest act_runner release ($RELEASES_API)."
   curl -fSL -o "$BIN" "$url" || die "Download failed: $url"
   chmod +x "$BIN"
   # macOS quarantines downloaded binaries; strip it or Gatekeeper blocks execution.
