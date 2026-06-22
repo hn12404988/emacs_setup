@@ -10,7 +10,7 @@
 # stop it by PORT with `fuser` — this catches the one the script started (which
 # has no pidfile) and avoids `pkill -f` matching this recipe's own shell.
 
-VERSION    := 0.2.0
+VERSION    := 0.2.1
 PORT       := 8723
 PIECES_DIR := $(HOME)/.local/share/pieces
 OS         := $(shell uname -s | sed 's/Linux/linux/;s/Darwin/darwin/')
