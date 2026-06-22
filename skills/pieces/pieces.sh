@@ -11,7 +11,7 @@
 # that it equals pieces-daemon/Cargo.toml (see .forgejo/workflows/build-binaries.yml).
 set -eu
 
-PIECES_VERSION="0.2.0"
+PIECES_VERSION="0.2.1"
 PIECES_PORT=8723
 PIECES_DATA="$HOME/.local/share/pieces"
 LOG="$PIECES_DATA/daemon.log"
