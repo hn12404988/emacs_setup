@@ -20,7 +20,7 @@ LOG        := $(PIECES_DIR)/daemon.log
 PIDFILE    := $(PIECES_DIR)/daemon.pid
 BUILD      := pieces-daemon/target/debug/pieces
 
-.PHONY: pieces-dev pieces-stop pieces-status
+.PHONY: pieces-dev pieces-stop pieces-status version-bump
 
 ## pieces-dev: build (debug), overwrite the installed binary, restart the daemon
 pieces-dev:
@@ -53,3 +53,24 @@ pieces-status:
 	@curl -fsS "http://127.0.0.1:$(PORT)/health" >/dev/null 2>&1 \
 		&& echo "✓ up on http://127.0.0.1:$(PORT)/" \
 		|| echo "✗ not responding on port $(PORT)"
+
+## version-bump: set the pieces version in every file that pins it.
+## Usage: make version-bump 0.2.2
+version-bump:
+	@v="$(filter-out $@,$(MAKECMDGOALS))"; \
+	if [ -z "$$v" ]; then echo "usage: make version-bump <X.Y.Z>   e.g. make version-bump 0.2.2"; exit 1; fi; \
+	echo "$$v" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$' || { echo "version must be X.Y.Z (got: $$v)"; exit 1; }; \
+	echo "bumping pieces version $(VERSION) -> $$v"; \
+	sed "s/^version = \"[^\"]*\"/version = \"$$v\"/" pieces-daemon/Cargo.toml > pieces-daemon/Cargo.toml.tmp && mv pieces-daemon/Cargo.toml.tmp pieces-daemon/Cargo.toml; \
+	awk -v v="$$v" 'BEGIN{q="\""} /^name = "pieces"$$/{f=1} f&&/^version = /{sub(/"[^"]*"/,q v q);f=0} {print}' pieces-daemon/Cargo.lock > pieces-daemon/Cargo.lock.tmp && mv pieces-daemon/Cargo.lock.tmp pieces-daemon/Cargo.lock; \
+	sed "s/^PIECES_VERSION=\"[^\"]*\"/PIECES_VERSION=\"$$v\"/" skills/pieces/pieces.sh > skills/pieces/pieces.sh.tmp && mv skills/pieces/pieces.sh.tmp skills/pieces/pieces.sh && chmod +x skills/pieces/pieces.sh; \
+	sed "s/\"version\": \"[^\"]*\"/\"version\": \"$$v\"/" .claude-plugin/plugin.json > .claude-plugin/plugin.json.tmp && mv .claude-plugin/plugin.json.tmp .claude-plugin/plugin.json; \
+	sed "s/^VERSION[[:space:]]*:=.*/VERSION    := $$v/" Makefile > Makefile.tmp && mv Makefile.tmp Makefile; \
+	echo "updated: Cargo.toml, Cargo.lock, pieces.sh, plugin.json, Makefile -> $$v"; \
+	echo "next: review 'git diff', commit, then  git tag -f v$$v && git push origin v$$v --force"
+
+# Let a bare version arg (the 0.2.2 in `make version-bump 0.2.2`) be a no-op goal
+# instead of a "No rule to make target" error. Match-anything rules are excluded
+# from makefile remaking, so this does not interfere with the real targets above.
+%:
+	@:
