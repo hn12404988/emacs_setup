@@ -1,15 +1,21 @@
 # ── pieces-daemon dev workflow ────────────────────────────────────────────
 # `make pieces-dev` builds the daemon, installs it over the version-pinned
-# binary that `skills/pieces/SKILL.md` launches, and restarts it.
+# binary that `skills/pieces/pieces.sh up` launches, and restarts it.
+#
+# BIN matches that script's layout exactly ($VERSION/bin/pieces-$os-$arch) so a
+# local dev build lands where the script looks — otherwise `up` would re-download
+# the release binary over it when the daemon is not already running.
 #
 # The running daemon is a detached process (parent = init) bound to PORT, so we
-# stop it by PORT with `fuser` — this catches the one the skill started (which
+# stop it by PORT with `fuser` — this catches the one the script started (which
 # has no pidfile) and avoids `pkill -f` matching this recipe's own shell.
 
 VERSION    := 0.2.0
 PORT       := 8723
 PIECES_DIR := $(HOME)/.local/share/pieces
-BIN        := $(PIECES_DIR)/bin/pieces-$(VERSION)
+OS         := $(shell uname -s | sed 's/Linux/linux/;s/Darwin/darwin/')
+ARCH       := $(shell uname -m | sed 's/amd64/x86_64/;s/aarch64/arm64/')
+BIN        := $(PIECES_DIR)/$(VERSION)/bin/pieces-$(OS)-$(ARCH)
 LOG        := $(PIECES_DIR)/daemon.log
 PIDFILE    := $(PIECES_DIR)/daemon.pid
 BUILD      := pieces-daemon/target/debug/pieces

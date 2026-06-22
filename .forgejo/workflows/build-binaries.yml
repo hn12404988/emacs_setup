@@ -28,6 +28,10 @@ jobs:
           cd src/pieces-daemon
           ver="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
           tag="v${ver}"
+          # Guard — the skill script's baked version drives the download, so it
+          # must match the binary we are about to publish.
+          sver="$(grep -m1 'PIECES_VERSION=' ../skills/pieces/pieces.sh | sed -E 's/.*PIECES_VERSION="?([^"]*)"?.*/\1/')"
+          [ "$sver" = "$ver" ] || { echo "::error::skills/pieces/pieces.sh PIECES_VERSION ($sver) != Cargo ($ver) — bump them together"; exit 1; }
           echo "Building pieces ${tag} for linux-arm64 (host arch: $(uname -m))"
           cargo build --release --bin pieces
           cp target/release/pieces pieces-linux-arm64
@@ -50,6 +54,10 @@ jobs:
           cd src/pieces-daemon
           ver="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
           tag="v${ver}"
+          # Guard — the skill script's baked version drives the download, so it
+          # must match the binary we are about to publish.
+          sver="$(grep -m1 'PIECES_VERSION=' ../skills/pieces/pieces.sh | sed -E 's/.*PIECES_VERSION="?([^"]*)"?.*/\1/')"
+          [ "$sver" = "$ver" ] || { echo "::error::skills/pieces/pieces.sh PIECES_VERSION ($sver) != Cargo ($ver) — bump them together"; exit 1; }
           chmod +x ci/upload-asset.sh
           echo "Building pieces ${tag} for darwin (host arch: $(uname -m))"
           # arm64 native — the guaranteed deliverable

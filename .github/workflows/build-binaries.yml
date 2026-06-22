@@ -47,6 +47,8 @@ jobs:
           cv="$(grep -m1 '^version' pieces-daemon/Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
           echo "Cargo: $cv ; resolved: ${{ needs.vars.outputs.version }}"
           [ "$cv" = "${{ needs.vars.outputs.version }}" ] || { echo "::error::pieces-daemon/Cargo.toml version ($cv) != ${{ needs.vars.outputs.version }} — bump Cargo first"; exit 1; }
+          sver="$(grep -m1 'PIECES_VERSION=' skills/pieces/pieces.sh | sed -E 's/.*PIECES_VERSION="?([^"]*)"?.*/\1/')"
+          [ "$sver" = "$cv" ] || { echo "::error::skills/pieces/pieces.sh PIECES_VERSION ($sver) != Cargo ($cv) — bump them together"; exit 1; }
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
@@ -82,6 +84,8 @@ jobs:
           cv="$(grep -m1 '^version' pieces-daemon/Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
           echo "Cargo: $cv ; resolved: ${{ needs.vars.outputs.version }}"
           [ "$cv" = "${{ needs.vars.outputs.version }}" ] || { echo "::error::pieces-daemon/Cargo.toml version ($cv) != ${{ needs.vars.outputs.version }} — bump Cargo first"; exit 1; }
+          sver="$(grep -m1 'PIECES_VERSION=' skills/pieces/pieces.sh | sed -E 's/.*PIECES_VERSION="?([^"]*)"?.*/\1/')"
+          [ "$sver" = "$cv" ] || { echo "::error::skills/pieces/pieces.sh PIECES_VERSION ($sver) != Cargo ($cv) — bump them together"; exit 1; }
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}

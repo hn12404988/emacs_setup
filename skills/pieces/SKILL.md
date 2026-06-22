@@ -37,51 +37,28 @@ Heavy information goes to the daemon; the chat stays light.
   decisions stay in the terminal the normal way. If a question needs a lot of
   background, the background becomes pieces; only the short question stays in chat.
 
+## How the daemon is handled (you do not manage it by hand)
+
+All the mechanics — version check, download, install, start, health, sending —
+live in one bundled script: **`${CLAUDE_SKILL_DIR}/pieces.sh`**. You only ever
+call it. Do not reimplement any of it (no curl health loops, no download URLs,
+no port handling). The script is idempotent — safe to run every time.
+
 ## Step 1 — Make sure the daemon is running
 
-Run this in the shell. It checks health, downloads the version-pinned binary if
-needed, and starts it. The version below is bound to this skill's release.
-
 ```sh
-PIECES_VERSION=0.2.0
-PIECES_PORT=8723
-PIECES_DIR="$HOME/.local/share/pieces"
-BIN="$PIECES_DIR/bin/pieces-$PIECES_VERSION"
-
-if ! curl -fsS "http://127.0.0.1:$PIECES_PORT/health" >/dev/null 2>&1; then
-  if [ ! -x "$BIN" ]; then
-    os=$(uname -s); arch=$(uname -m)
-    case "$os" in Linux) os=linux;; Darwin) os=darwin;; esac
-    case "$arch" in x86_64|amd64) arch=x86_64;; aarch64|arm64) arch=arm64;; esac
-    mkdir -p "$PIECES_DIR/bin"
-    url="https://github.com/hn12404988/emacs_setup/releases/download/v$PIECES_VERSION/pieces-$os-$arch"
-    curl -fsSL "$url" -o "$BIN" && chmod +x "$BIN"
-  fi
-  nohup "$BIN" --port "$PIECES_PORT" >> "$PIECES_DIR/daemon.log" 2>&1 &
-  for i in $(seq 1 50); do
-    curl -fsS "http://127.0.0.1:$PIECES_PORT/health" >/dev/null 2>&1 && break
-    sleep 0.1
-  done
-fi
+bash "${CLAUDE_SKILL_DIR}/pieces.sh" up
 ```
 
-## Step 2 — Make sure this project has a thread id
+That single call checks the pinned version, downloads and installs the right
+binary if needed, starts the daemon, and waits until it is healthy. On success
+it prints the base URL. (`send` in Step 3 also ensures this, so this step is
+mostly for a clean first run. To check state any time: `pieces.sh status`.)
 
-```sh
-THREAD_FILE=".claude/pieces-thread"
-if [ ! -f "$THREAD_FILE" ]; then
-  mkdir -p .claude
-  slug=$(basename "$PWD" | tr -c 'a-zA-Z0-9' '-' | sed 's/-\{1,\}/-/g; s/^-//; s/-$//')
-  rand=$(head -c3 /dev/urandom | od -An -tx1 | tr -d ' \n')
-  echo "${slug}-${rand}" > "$THREAD_FILE"
-fi
-THREAD=$(cat "$THREAD_FILE")
-```
+## Step 2 — Build the payload
 
-## Step 3 — Build the payload and send it
-
-Write the payload to a temp file (a big JSON full of code does not belong on the
-command line), then POST it with the thread header.
+This is your real job: break the answer into pieces and write the payload JSON
+to a temp file (a big JSON full of code does not belong on the command line).
 
 The payload schema:
 
@@ -96,20 +73,26 @@ The payload schema:
 }
 ```
 
-Send it:
+Write it with a temp file, e.g.:
 
 ```sh
-# PAYLOAD_FILE is the temp file you just wrote the JSON to.
-curl -fsS -X POST "http://127.0.0.1:$PIECES_PORT/messages" \
-  -H "PIECES-THREAD: $THREAD" -H "Content-Type: application/json" \
-  --data @"$PAYLOAD_FILE"
+PAYLOAD_FILE="$(mktemp)"
+# ... write the JSON above into "$PAYLOAD_FILE" ...
 ```
 
-The response is `{"url":"/t/<thread>/r/<id>"}`. Tell the user the full URL in one
-line, e.g. `http://127.0.0.1:8723/t/<thread>/r/<id>`.
+## Step 3 — Send it
 
-If the POST fails with a validation error, the JSON was malformed (often
-unescaped quotes or newlines inside a code body). Fix the JSON and resend.
+```sh
+bash "${CLAUDE_SKILL_DIR}/pieces.sh" send "$PAYLOAD_FILE"
+```
+
+The script ensures the daemon, finds or creates this project's thread id, POSTs
+the payload, and prints the full URL on stdout — for example
+`http://127.0.0.1:8723/t/<thread>/r/<id>`. Tell the user that URL in one line.
+
+If the call exits non-zero, the script already printed the daemon's error
+(usually malformed JSON — an unescaped quote or a raw newline inside a code
+body). Fix the JSON and run `send` again.
 
 ## The piece-by-piece principle (unchanged)
 

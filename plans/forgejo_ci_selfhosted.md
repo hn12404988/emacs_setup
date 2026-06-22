@@ -43,8 +43,8 @@ On **M6**:
 
 On **Forgejo**:
 - Repo `willy/emacs_setup` (private) = mirror of the GitHub repo + the `.forgejo` pipeline.
-- Repo Actions secret `RELEASE_TOKEN` (= the access token below).
-- Personal access token named **`pipeline-setup`** (scope: all) for user `willy`.
+- Repo Actions secret `RELEASE_TOKEN` = the value of your existing **`m6-git`** token (`write:repository`).
+  (No new access token; the earlier full-scope `pipeline-setup` token was created then removed.)
 - Release `willy/emacs_setup v0.2.0`.
 
 In the **`emacs_setup` repo** (committed):
@@ -91,8 +91,9 @@ Git remote `forgejo` → `willy/emacs_setup` on the M6 instance (GitHub `origin`
 
 - The host-mode runner runs **any** workflow code in `willy/emacs_setup` **as user `m6`**. Fine for a
   private repo only you push to — do not point this runner at untrusted repos.
-- The `pipeline-setup` token is **full scope** and also stored as the `RELEASE_TOKEN` secret. Consider
-  rotating it to a repo-write-only token later (Forgejo → Settings → Applications).
+- CI uses the **`m6-git`** token (`write:repository` — minimal for clone + release upload), carried in the
+  `RELEASE_TOKEN` secret. It is shared with your M6 git-push credential, so treat CI logs as
+  credential-sensitive. (The earlier full-scope `pipeline-setup` token was removed.)
 - Forgejo is still bound to `127.0.0.1` only — not weakened.
 
 ---
@@ -108,5 +109,5 @@ rm -rf /home/m6/fj-runner-host
 # local repo
 git remote remove forgejo
 # (optional) drop the CI files: rm -r .forgejo pieces-daemon/ci
-# Forgejo UI/API: delete runner 'm6-host', delete repo willy/emacs_setup, revoke 'pipeline-setup' token.
+# Forgejo UI/API: delete runner 'm6-host', delete repo willy/emacs_setup. (CI uses your m6-git token.)
 ```
