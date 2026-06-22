@@ -1,0 +1,69 @@
+name: build-binaries
+# Self-hosted Forgejo build for the `pieces` daemon (crate lives in pieces-daemon/).
+# Runs ONLY on Forgejo — GitHub Actions ignores .forgejo/, and Forgejo ignores
+# .github/ when this directory exists (verified on this instance).
+#   Linux -> M6 host-mode runner (label linux-arm64) : native aarch64
+#   macOS -> Mac runner (label macos-14)              : native arm64 (+ x86_64 best effort)
+# Each job clones, builds from pieces-daemon/, and publishes its asset to the
+# Forgejo release via the gitea-compatible API (no `gh`). Needs rustc >= 1.94 (sqlx 0.9).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  linux-arm64:
+    runs-on: linux-arm64
+    steps:
+      - name: Build & publish linux-arm64
+        env:
+          TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          SERVER: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          scheme="${SERVER%%://*}"; rest="${SERVER#*://}"
+          rm -rf src
+          git clone --depth 1 "${scheme}://willy:${TOKEN}@${rest}/${REPO}.git" src
+          cd src/pieces-daemon
+          ver="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
+          tag="v${ver}"
+          echo "Building pieces ${tag} for linux-arm64 (host arch: $(uname -m))"
+          cargo build --release --bin pieces
+          cp target/release/pieces pieces-linux-arm64
+          chmod +x ci/upload-asset.sh
+          ./ci/upload-asset.sh "${tag}" pieces-linux-arm64
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - name: Build & publish macOS
+        env:
+          TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          SERVER: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          scheme="${SERVER%%://*}"; rest="${SERVER#*://}"
+          rm -rf src
+          git clone --depth 1 "${scheme}://willy:${TOKEN}@${rest}/${REPO}.git" src
+          cd src/pieces-daemon
+          ver="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
+          tag="v${ver}"
+          chmod +x ci/upload-asset.sh
+          echo "Building pieces ${tag} for darwin (host arch: $(uname -m))"
+          # arm64 native — the guaranteed deliverable
+          cargo build --release --bin pieces
+          cp target/release/pieces pieces-darwin-arm64
+          ./ci/upload-asset.sh "${tag}" pieces-darwin-arm64
+          # x86_64 cross — best effort (needs rustup + the target)
+          if command -v rustup >/dev/null 2>&1 && rustup target add x86_64-apple-darwin; then
+            if cargo build --release --bin pieces --target x86_64-apple-darwin; then
+              cp target/x86_64-apple-darwin/release/pieces pieces-darwin-x86_64
+              ./ci/upload-asset.sh "${tag}" pieces-darwin-x86_64
+            else
+              echo "::warning::x86_64-apple-darwin build failed; skipping that asset"
+            fi
+          else
+            echo "::warning::rustup/x86_64-apple-darwin unavailable; skipping that asset"
+          fi
