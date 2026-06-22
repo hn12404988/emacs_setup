@@ -1,15 +1,25 @@
 name: build-binaries
 # Self-hosted Forgejo build for the `pieces` daemon (crate lives in pieces-daemon/).
-# Runs ONLY on Forgejo — GitHub Actions ignores .forgejo/, and Forgejo ignores
-# .github/ when this directory exists (verified on this instance).
+# Mirror of .github/workflows/build-binaries.yml — intended to replace it once all
+# build machines (incl. native macOS x86) are on the tailnet.
+# Runs ONLY on Forgejo (GitHub Actions ignores .forgejo/; Forgejo ignores .github/
+# when this dir exists). Needs rustc >= 1.94 (sqlx 0.9).
 #   Linux -> M6 host-mode runner (label linux-arm64) : native aarch64
-#   macOS -> Mac runner (label macos-14)              : native arm64 (+ x86_64 best effort)
-# Each job clones, builds from pieces-daemon/, and publishes its asset to the
-# Forgejo release via the gitea-compatible API (no `gh`). Needs rustc >= 1.94 (sqlx 0.9).
+#   macOS -> Mac runner (label macos-14)             : native arm64 (+ x86_64 best effort)
+#
+# Triggered two ways, exactly like the GitHub workflow:
+#   1. push a vX.Y.Z tag        -> version comes from the tag, builds the tagged commit
+#   2. manual "Run workflow"    -> required `version` input (X.Y.Z, no leading v)
+# In both cases Cargo.toml and skills/pieces/pieces.sh must equal that version (guards).
 on:
   push:
-    branches: [main]
+    tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build/publish (no leading v, e.g. 0.3.0)"
+        required: true
+        type: string
 
 jobs:
   linux-arm64:
@@ -20,18 +30,26 @@ jobs:
           TOKEN: ${{ secrets.RELEASE_TOKEN }}
           SERVER: ${{ github.server_url }}
           REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           set -euo pipefail
+          # Resolve version: manual input, else strip leading v from the pushed tag.
+          if [ "$EVENT" = "workflow_dispatch" ]; then ver="$INPUT_VERSION"; else ver="${REF_NAME#v}"; fi
+          echo "$ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "::error::version '$ver' must be x.x.x (e.g. 0.3.0)"; exit 1; }
+          tag="v${ver}"
+          # Check out the triggering ref (the tag on push, the branch on dispatch).
           scheme="${SERVER%%://*}"; rest="${SERVER#*://}"
           rm -rf src
-          git clone --depth 1 "${scheme}://willy:${TOKEN}@${rest}/${REPO}.git" src
+          git clone --depth 1 --branch "$REF_NAME" "${scheme}://willy:${TOKEN}@${rest}/${REPO}.git" src
           cd src/pieces-daemon
-          ver="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
-          tag="v${ver}"
-          # Guard — the skill script's baked version drives the download, so it
-          # must match the binary we are about to publish.
+          # Guards — Cargo.toml and the skill script must match the version we publish.
+          cver="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
+          [ "$cver" = "$ver" ] || { echo "::error::pieces-daemon/Cargo.toml ($cver) != $ver — bump it first"; exit 1; }
           sver="$(grep -m1 'PIECES_VERSION=' ../skills/pieces/pieces.sh | sed -E 's/.*PIECES_VERSION="?([^"]*)"?.*/\1/')"
-          [ "$sver" = "$ver" ] || { echo "::error::skills/pieces/pieces.sh PIECES_VERSION ($sver) != Cargo ($ver) — bump them together"; exit 1; }
+          [ "$sver" = "$ver" ] || { echo "::error::skills/pieces/pieces.sh PIECES_VERSION ($sver) != $ver — bump them together"; exit 1; }
           echo "Building pieces ${tag} for linux-arm64 (host arch: $(uname -m))"
           cargo build --release --bin pieces
           cp target/release/pieces pieces-linux-arm64
@@ -46,18 +64,23 @@ jobs:
           TOKEN: ${{ secrets.RELEASE_TOKEN }}
           SERVER: ${{ github.server_url }}
           REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           set -euo pipefail
+          if [ "$EVENT" = "workflow_dispatch" ]; then ver="$INPUT_VERSION"; else ver="${REF_NAME#v}"; fi
+          echo "$ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "::error::version '$ver' must be x.x.x (e.g. 0.3.0)"; exit 1; }
+          tag="v${ver}"
           scheme="${SERVER%%://*}"; rest="${SERVER#*://}"
           rm -rf src
-          git clone --depth 1 "${scheme}://willy:${TOKEN}@${rest}/${REPO}.git" src
+          git clone --depth 1 --branch "$REF_NAME" "${scheme}://willy:${TOKEN}@${rest}/${REPO}.git" src
           cd src/pieces-daemon
-          ver="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
-          tag="v${ver}"
-          # Guard — the skill script's baked version drives the download, so it
-          # must match the binary we are about to publish.
+          cver="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
+          [ "$cver" = "$ver" ] || { echo "::error::pieces-daemon/Cargo.toml ($cver) != $ver — bump it first"; exit 1; }
           sver="$(grep -m1 'PIECES_VERSION=' ../skills/pieces/pieces.sh | sed -E 's/.*PIECES_VERSION="?([^"]*)"?.*/\1/')"
-          [ "$sver" = "$ver" ] || { echo "::error::skills/pieces/pieces.sh PIECES_VERSION ($sver) != Cargo ($ver) — bump them together"; exit 1; }
+          [ "$sver" = "$ver" ] || { echo "::error::skills/pieces/pieces.sh PIECES_VERSION ($sver) != $ver — bump them together"; exit 1; }
           chmod +x ci/upload-asset.sh
           echo "Building pieces ${tag} for darwin (host arch: $(uname -m))"
           # arm64 native — the guaranteed deliverable
