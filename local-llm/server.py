@@ -28,6 +28,7 @@ import ctypes
 import json
 import re
 import sherpa_onnx
+import struct
 import sys
 import threading
 import time
@@ -294,6 +295,48 @@ class ModelSpec:
             print(f"[rkllm] freed {self.name} ({reason})", flush=True)
 
 
+# --- ASR model (SenseVoice via sherpa-onnx, CPU inference) -------------------
+# Unlike the LLM models above this one is NOT an .rkllm – it is a standard
+# sherpa-onnx OfflineRecognizer backed by a SenseVoice ONNX model.  It runs on
+# CPU so it does NOT compete for the single NPU slot; the _lock serialises
+# requests anyway (one inference at a time) and loading is lazy.
+ASR_MODEL_DIR = MODELS / "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
+ASR_TTL = 30 * 60                   # evict after 30 min idle
+
+_STT_REC = None                     # OfflineRecognizer or None
+_STT_LAST_USED = 0.0
+
+
+def _get_stt_recognizer():
+    """Return a cached OfflineRecognizer, loading the SenseVoice model on first use."""
+    global _STT_REC, _STT_LAST_USED
+    with _lock:
+        if _STT_REC is None:
+            if not ASR_MODEL_DIR.exists():
+                raise RuntimeError(
+                    f"ASR model missing at {ASR_MODEL_DIR}. "
+                    f"Download it from the sherpa-onnx release page."
+                )
+            t0 = time.time()
+            _STT_REC = sherpa_onnx.OfflineRecognizer.from_sense_voice(
+                str(ASR_MODEL_DIR / "model.onnx"),
+                str(ASR_MODEL_DIR / "tokens.txt"),
+                language="zh",
+                use_itn=True,
+            )
+            print(f"[asr] loaded SenseVoice in {time.time() - t0:.1f}s", flush=True)
+        _STT_LAST_USED = time.time()
+        return _STT_REC
+
+
+def _free_stt_recognizer(reason: str = "idle"):
+    """Free the ASR recognizer (CPU memory). Caller must hold _lock."""
+    global _STT_REC
+    if _STT_REC is not None:
+        _STT_REC = None
+        print(f"[asr] freed recognizer ({reason})", flush=True)
+
+
 _SPECS = {
     "fim": ModelSpec("fim", FIM_MODEL_PATH, FIM_CONTEXT_LEN, FIM_MAX_NEW_TOKENS,
                      FIM_STOP_IDS, FIM_TTL),
@@ -348,6 +391,8 @@ def _reaper() -> None:
             for spec in _SPECS.values():
                 if spec.handle is not None and (now - spec.last_used) > spec.ttl:
                     spec.unload()
+            if _STT_REC is not None and (now - _STT_LAST_USED) > ASR_TTL:
+                _free_stt_recognizer()
 
 
 def _run_fim(prefix: str, suffix: str, max_tokens: int) -> str:
@@ -507,11 +552,22 @@ class _Handler(BaseHTTPRequestHandler):
 
         pcm_data = self._read_chunked_body()
 
-        rec = sherpa_onnx.OnlineRecognizer()
+        try:
+            rec = _get_stt_recognizer()
+        except RuntimeError as exc:
+            self._reply(503, {"error": str(exc)})
+            return
+
+        # Convert raw 16-bit PCM bytes to float32 samples.
+        n_samples = len(pcm_data) // 2
+        int_samples = struct.unpack("<" + "h" * n_samples, pcm_data) if pcm_data else []
+        floats = [s / 32768.0 for s in int_samples]
+
         stream = rec.create_stream()
-        if pcm_data:
-            stream.accept_waveform(16000, pcm_data)
-        text = rec.get_result(stream)
+        if floats:
+            stream.accept_waveform(16000, floats)
+        rec.decode_stream(stream)
+        text = stream.result.text
         self._reply(200, {"text": text})
 
     def _read_chunked_body(self) -> bytes:
@@ -560,6 +616,7 @@ def main() -> None:
         with _lock:
             for spec in _SPECS.values():
                 spec.unload("shutdown")
+            _free_stt_recognizer("shutdown")
         print("[rkllm] destroyed all", flush=True)
 
 

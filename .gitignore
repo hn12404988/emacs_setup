@@ -8,3 +8,4 @@ AGENTS.md
 # secrets (never commit)
 OPENWRT_PW
 *.exp
+.venv/
