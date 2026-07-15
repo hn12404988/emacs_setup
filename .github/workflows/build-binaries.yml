@@ -55,33 +55,6 @@ jobs:
           path: dist/stt-daemon-linux-x86_64
           if-no-files-found: error
 
-  build-stt-linux-arm64:
-    needs: vars
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Guard — Cargo version must equal the resolved version
-        run: |
-          cv="$(grep -m1 '^version' stt-daemon/Cargo.toml | sed -E 's/.*\"(.*)\".*/\1/')"
-          echo "Cargo: $cv ; resolved: ${{ needs.vars.outputs.version }}"
-          [ "$cv" = "${{ needs.vars.outputs.version }}" ] || { echo "::error::stt-daemon/Cargo.toml version ($cv) != ${{ needs.vars.outputs.version }} — bump Cargo first"; exit 1; }
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cross
-      - name: Build (gnu, via cross)
-        working-directory: stt-daemon
-        run: cross build --release --bin stt-daemon --target aarch64-unknown-linux-gnu
-      - name: Stage asset
-        run: |
-          mkdir -p dist
-          cp "stt-daemon/target/aarch64-unknown-linux-gnu/release/stt-daemon" "dist/stt-daemon-linux-arm64"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: stt-daemon-linux-arm64
-          path: dist/stt-daemon-linux-arm64
-          if-no-files-found: error
-
   build-stt-macos:
     needs: vars
     runs-on: macos-14
@@ -190,7 +163,7 @@ jobs:
           if-no-files-found: error
 
   upload:
-    needs: [vars, build-linux, build-macos, build-stt-linux-x86_64, build-stt-linux-arm64, build-stt-macos]
+    needs: [vars, build-linux, build-macos, build-stt-linux-x86_64, build-stt-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -212,7 +185,7 @@ jobs:
           cd dist
           gh release upload "$tag" \
             pieces-linux-x86_64 pieces-linux-arm64 pieces-darwin-arm64 pieces-darwin-x86_64 \
-            stt-daemon-linux-x86_64 stt-daemon-linux-arm64 stt-daemon-darwin-arm64 stt-daemon-darwin-x86_64 \
+            stt-daemon-linux-x86_64 stt-daemon-darwin-arm64 stt-daemon-darwin-x86_64 \
             SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --clobber
-          echo "Uploaded 8 binaries + SHA256SUMS to $GITHUB_REPOSITORY release $tag"
+          echo "Uploaded 7 binaries + SHA256SUMS to $GITHUB_REPOSITORY release $tag"
