@@ -2,6 +2,7 @@
 *.elc
 .antigravitycli
 pieces-daemon/target/
+stt-daemon/target/
 
 # secrets (never commit)
 OPENWRT_PW
