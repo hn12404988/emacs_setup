@@ -27,6 +27,7 @@ again requires re-checking rkllm.h.
 import ctypes
 import json
 import re
+import sherpa_onnx
 import sys
 import threading
 import time
@@ -435,6 +436,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._do_infill()
         elif self.path == "/commit":
             self._do_commit()
+        elif self.path == "/stt":
+            self._do_stt()
         else:
             self._reply(404, {"error": "unknown endpoint (try /infill or /commit)"})
 
@@ -471,6 +474,70 @@ class _Handler(BaseHTTPRequestHandler):
             self._reply(500, {"error": str(exc)})
             return
         self._reply(200, {"message": message})
+
+    def _do_stt(self):
+        content_type = self.headers.get("Content-Type", "")
+        if not content_type:
+            self._reply(400, {"error": "missing Content-Type"})
+            return
+
+        parts = content_type.split(";")
+        media_type = parts[0].strip()
+
+        if media_type != "audio/l16":
+            self._reply(415, {"error": "unsupported media type; expected audio/l16"})
+            return
+
+        params = {}
+        for p in parts[1:]:
+            p = p.strip()
+            if "=" in p:
+                k, v = p.split("=", 1)
+                params[k.strip()] = v.strip()
+
+        rate = int(params.get("rate", "0"))
+        channels = int(params.get("channels", "0"))
+
+        if rate != 16000:
+            self._reply(400, {"error": f"unsupported sample rate {rate}; expected 16000"})
+            return
+        if channels != 1:
+            self._reply(400, {"error": f"unsupported channels {channels}; expected 1"})
+            return
+
+        pcm_data = self._read_chunked_body()
+
+        rec = sherpa_onnx.OnlineRecognizer()
+        stream = rec.create_stream()
+        if pcm_data:
+            stream.accept_waveform(16000, pcm_data)
+        text = rec.get_result(stream)
+        self._reply(200, {"text": text})
+
+    def _read_chunked_body(self) -> bytes:
+        transfer_encoding = self.headers.get("Transfer-Encoding", "")
+        if transfer_encoding.lower() != "chunked":
+            n = int(self.headers.get("Content-Length", "0"))
+            return self.rfile.read(n)
+
+        data = bytearray()
+        while True:
+            line = b""
+            while not line.endswith(b"\r\n"):
+                ch = self.rfile.read(1)
+                if not ch:
+                    break
+                line += ch
+            if not line:
+                break
+            chunk_size = int(line.rstrip(b"\r\n").split(b";")[0], 16)
+            if chunk_size == 0:
+                self.rfile.read(2)
+                break
+            chunk_data = self.rfile.read(chunk_size)
+            data.extend(chunk_data)
+            self.rfile.read(2)
+        return bytes(data)
 
 
 def _init_runtime() -> None:
