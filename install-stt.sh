@@ -11,7 +11,7 @@
 #   ./install-stt.sh --install       actually install
 set -euo pipefail
 
-REPO="hn12404988/stt-daemon"
+REPO="hn12404988/emacs_setup"
 INSTALL_DIR="$HOME/.local/bin"
 BINARY_NAME="stt-daemon"
 
