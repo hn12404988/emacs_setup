@@ -3,6 +3,7 @@
 .antigravitycli
 pieces-daemon/target/
 stt-daemon/target/
+AGENTS.md
 
 # secrets (never commit)
 OPENWRT_PW
