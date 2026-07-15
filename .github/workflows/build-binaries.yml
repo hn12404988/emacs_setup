@@ -29,17 +29,35 @@ jobs:
             echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
           fi
 
-  build-stt-linux:
+  build-stt-linux-x86_64:
     needs: vars
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-musl
-            asset: stt-daemon-linux-x86_64
-          - target: aarch64-unknown-linux-musl
-            asset: stt-daemon-linux-arm64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Guard — Cargo version must equal the resolved version
+        run: |
+          cv="$(grep -m1 '^version' stt-daemon/Cargo.toml | sed -E 's/.*\"(.*)\".*/\1/')"
+          echo "Cargo: $cv ; resolved: ${{ needs.vars.outputs.version }}"
+          [ "$cv" = "${{ needs.vars.outputs.version }}" ] || { echo "::error::stt-daemon/Cargo.toml version ($cv) != ${{ needs.vars.outputs.version }} — bump Cargo first"; exit 1; }
+      - name: Install ALSA dev headers
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build (gnu, native)
+        working-directory: stt-daemon
+        run: cargo build --release --bin stt-daemon
+      - name: Stage asset
+        run: |
+          mkdir -p dist
+          cp "stt-daemon/target/release/stt-daemon" "dist/stt-daemon-linux-x86_64"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stt-daemon-linux-x86_64
+          path: dist/stt-daemon-linux-x86_64
+          if-no-files-found: error
+
+  build-stt-linux-arm64:
+    needs: vars
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Guard — Cargo version must equal the resolved version
@@ -51,17 +69,17 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cross
-      - name: Build (musl static, via cross)
+      - name: Build (gnu, via cross)
         working-directory: stt-daemon
-        run: cross build --release --bin stt-daemon --target ${{ matrix.target }}
+        run: cross build --release --bin stt-daemon --target aarch64-unknown-linux-gnu
       - name: Stage asset
         run: |
           mkdir -p dist
-          cp "stt-daemon/target/${{ matrix.target }}/release/stt-daemon" "dist/${{ matrix.asset }}"
+          cp "stt-daemon/target/aarch64-unknown-linux-gnu/release/stt-daemon" "dist/stt-daemon-linux-arm64"
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset }}
-          path: dist/${{ matrix.asset }}
+          name: stt-daemon-linux-arm64
+          path: dist/stt-daemon-linux-arm64
           if-no-files-found: error
 
   build-stt-macos:
@@ -172,7 +190,7 @@ jobs:
           if-no-files-found: error
 
   upload:
-    needs: [vars, build-linux, build-macos, build-stt-linux, build-stt-macos]
+    needs: [vars, build-linux, build-macos, build-stt-linux-x86_64, build-stt-linux-arm64, build-stt-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
