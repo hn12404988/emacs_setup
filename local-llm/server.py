@@ -26,6 +26,7 @@ again requires re-checking rkllm.h.
 
 import ctypes
 import json
+import os
 import re
 import sherpa_onnx
 import struct
@@ -295,46 +296,89 @@ class ModelSpec:
             print(f"[rkllm] freed {self.name} ({reason})", flush=True)
 
 
-# --- ASR model (SenseVoice via sherpa-onnx, CPU inference) -------------------
-# Unlike the LLM models above this one is NOT an .rkllm – it is a standard
-# sherpa-onnx OfflineRecognizer backed by a SenseVoice ONNX model.  It runs on
-# CPU so it does NOT compete for the single NPU slot; the _lock serialises
-# requests anyway (one inference at a time) and loading is lazy.
-ASR_MODEL_DIR = MODELS / "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
-ASR_TTL = 30 * 60                   # evict after 30 min idle
+# --- ASR model (Zipformer via sherpa-onnx CLI, RKNN / NPU) ------------------
+# Uses a standalone sherpa-onnx binary compiled with RKNN support.  The binary
+# loads the model on each call (≈0.9 s) and runs inference on the NPU.  The
+# global _lock already serialises all inference, so the NPU is never contended
+# between LLM and ASR.
+ASR_MODEL_DIR = MODELS / "sherpa-onnx-rk3588-streaming-zipformer-bilingual-zh-en-2023-02-20"
+ASR_CLI = HERE / "bin" / "sherpa-onnx"
 
-_STT_REC = None                     # OfflineRecognizer or None
-_STT_LAST_USED = 0.0
+_STT_READY = False                  # True once the CLI binary is verified
 
 
-def _get_stt_recognizer():
-    """Return a cached OfflineRecognizer, loading the SenseVoice model on first use."""
-    global _STT_REC, _STT_LAST_USED
-    with _lock:
-        if _STT_REC is None:
-            if not ASR_MODEL_DIR.exists():
-                raise RuntimeError(
-                    f"ASR model missing at {ASR_MODEL_DIR}. "
-                    f"Download it from the sherpa-onnx release page."
-                )
-            t0 = time.time()
-            _STT_REC = sherpa_onnx.OfflineRecognizer.from_sense_voice(
-                str(ASR_MODEL_DIR / "model.onnx"),
-                str(ASR_MODEL_DIR / "tokens.txt"),
-                language="zh",
-                use_itn=True,
+def _verify_stt_cli():
+    """Check that the sherpa-onnx CLI binary and model exist."""
+    global _STT_READY
+    if _STT_READY:
+        return
+    if not ASR_CLI.exists():
+        raise RuntimeError(
+            f"ASR CLI binary missing at {ASR_CLI}. "
+            f"Build sherpa-onnx with -DSHERPA_ONNX_ENABLE_RKNN=ON."
+        )
+    if not (ASR_MODEL_DIR / "encoder.rknn").exists():
+        raise RuntimeError(
+            f"ASR model missing at {ASR_MODEL_DIR}. "
+            f"Download from csukuangfj/sherpa-onnx-rknn-models on HuggingFace."
+        )
+    _STT_READY = True
+
+
+def _run_stt(pcm_data: bytes) -> str:
+    """Run ASR on raw 16-bit PCM via the sherpa-onnx RKNN CLI.
+
+    Returns the transcribed text, or raises RuntimeError on failure.
+    """
+    import subprocess, tempfile
+
+    # Write PCM to a temp WAV file.
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+        # WAV header: 44 bytes
+        n_bytes = len(pcm_data)
+        header = struct.pack(
+            "<4sI4s4sIHHIIHH4sI",
+            b"RIFF", 36 + n_bytes, b"WAVE",
+            b"fmt ", 16, 1, 1, 16000, 32000, 2, 16,
+            b"data", n_bytes,
+        )
+        tf.write(header + pcm_data)
+        wav_path = tf.name
+
+    try:
+        proc = subprocess.run(
+            [
+                str(ASR_CLI),
+                "--provider=rknn",
+                f"--encoder={ASR_MODEL_DIR}/encoder.rknn",
+                f"--decoder={ASR_MODEL_DIR}/decoder.rknn",
+                f"--joiner={ASR_MODEL_DIR}/joiner.rknn",
+                f"--tokens={ASR_MODEL_DIR}/tokens.txt",
+                wav_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"sherpa-onnx exited {proc.returncode}: {proc.stderr[:200]}"
             )
-            print(f"[asr] loaded SenseVoice in {time.time() - t0:.1f}s", flush=True)
-        _STT_LAST_USED = time.time()
-        return _STT_REC
-
-
-def _free_stt_recognizer(reason: str = "idle"):
-    """Free the ASR recognizer (CPU memory). Caller must hold _lock."""
-    global _STT_REC
-    if _STT_REC is not None:
-        _STT_REC = None
-        print(f"[asr] freed recognizer ({reason})", flush=True)
+        # The CLI writes JSON to stderr (mixed with diagnostic output).
+        # Find the last JSON object (starts with "{").
+        output = proc.stderr + proc.stdout
+        import json as _json
+        for line in reversed(output.splitlines()):
+            line = line.strip()
+            if line.startswith("{"):
+                result = _json.loads(line)
+                return result.get("text", "")
+        raise RuntimeError(f"no JSON in CLI output: {output[:200]}")
+    finally:
+        try:
+            os.unlink(wav_path)
+        except OSError:
+            pass
 
 
 _SPECS = {
@@ -391,8 +435,6 @@ def _reaper() -> None:
             for spec in _SPECS.values():
                 if spec.handle is not None and (now - spec.last_used) > spec.ttl:
                     spec.unload()
-            if _STT_REC is not None and (now - _STT_LAST_USED) > ASR_TTL:
-                _free_stt_recognizer()
 
 
 def _run_fim(prefix: str, suffix: str, max_tokens: int) -> str:
@@ -553,21 +595,16 @@ class _Handler(BaseHTTPRequestHandler):
         pcm_data = self._read_chunked_body()
 
         try:
-            rec = _get_stt_recognizer()
+            _verify_stt_cli()
         except RuntimeError as exc:
             self._reply(503, {"error": str(exc)})
             return
 
-        # Convert raw 16-bit PCM bytes to float32 samples.
-        n_samples = len(pcm_data) // 2
-        int_samples = struct.unpack("<" + "h" * n_samples, pcm_data) if pcm_data else []
-        floats = [s / 32768.0 for s in int_samples]
-
-        stream = rec.create_stream()
-        if floats:
-            stream.accept_waveform(16000, floats)
-        rec.decode_stream(stream)
-        text = stream.result.text
+        try:
+            text = _run_stt(pcm_data)
+        except RuntimeError as exc:
+            self._reply(500, {"error": str(exc)})
+            return
         self._reply(200, {"text": text})
 
     def _read_chunked_body(self) -> bytes:
@@ -616,7 +653,6 @@ def main() -> None:
         with _lock:
             for spec in _SPECS.values():
                 spec.unload("shutdown")
-            _free_stt_recognizer("shutdown")
         print("[rkllm] destroyed all", flush=True)
 
 
