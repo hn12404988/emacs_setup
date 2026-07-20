@@ -47,7 +47,7 @@ HERE = Path(__file__).resolve().parent
 LIB_PATH = HERE / "lib" / "librkllmrt.so"
 MODELS = HERE / "models"
 
-HOST, PORT = "127.0.0.1", 8080
+HOST, PORT = "0.0.0.0", 8080
 
 # --- FIM model (fast, base Qwen2.5-Coder-1.5B) -----------------------------
 FIM_MODEL_PATH = MODELS / "Qwen2.5-Coder-1.5B-rk3588-w8a8-opt-1-hybrid-ratio-0.0.rkllm"
