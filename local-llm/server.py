@@ -563,10 +563,7 @@ class _Handler(BaseHTTPRequestHandler):
         self._reply(200, {"message": message})
 
     def _do_stt(self):
-        content_type = self.headers.get("Content-Type", "")
-        if not content_type:
-            self._reply(400, {"error": "missing Content-Type"})
-            return
+        content_type = self.headers.get("Content-Type", "audio/l16; rate=16000; channels=1")
 
         parts = content_type.split(";")
         media_type = parts[0].strip()
@@ -582,8 +579,8 @@ class _Handler(BaseHTTPRequestHandler):
                 k, v = p.split("=", 1)
                 params[k.strip()] = v.strip()
 
-        rate = int(params.get("rate", "0"))
-        channels = int(params.get("channels", "0"))
+        rate = int(params.get("rate", "16000"))
+        channels = int(params.get("channels", "1"))
 
         if rate != 16000:
             self._reply(400, {"error": f"unsupported sample rate {rate}; expected 16000"})
