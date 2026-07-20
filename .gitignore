@@ -4,6 +4,7 @@
 pieces-daemon/target/
 stt-daemon/target/
 AGENTS.md
+pieces-thread
 
 # secrets (never commit)
 OPENWRT_PW
