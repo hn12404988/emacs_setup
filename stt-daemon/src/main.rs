@@ -26,15 +26,17 @@ struct AppState {
 }
 
 fn type_text(text: &str) {
+    eprintln!("[stt] typing \"{}\"", text);
     #[cfg(target_os = "macos")]
     {
-        let script = format!(
-            "tell application \"System Events\" to keystroke \"{}\"",
-            text.replace('\"', "\\\"")
-        );
-        if let Err(e) = Command::new("osascript").arg("-e").arg(&script).output() {
-            eprintln!("osascript failed: {e}");
-        }
+        let escaped = text.replace('\\', "\\\\").replace('\"', "\\\"");
+        // Set clipboard, then paste — handles any characters (Chinese, emoji, etc.)
+        let _ = Command::new("osascript").arg("-e")
+            .arg(format!("set the clipboard to \"{}\"", escaped))
+            .output();
+        let _ = Command::new("osascript").arg("-e")
+            .arg("tell application \"System Events\" to keystroke \"v\" using command down")
+            .output();
     }
     #[cfg(target_os = "linux")]
     {
