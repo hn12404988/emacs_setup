@@ -178,6 +178,12 @@ cmd_install() {
 
   # 2. Download binary
   say "Downloading $url ..."
+  # Check that the binary exists first (some archs, like linux/arm64, may not be built)
+  local http_code
+  http_code=$(curl -sLI -o /dev/null -w '%{http_code}' "$url")
+  if [ "$http_code" = "404" ]; then
+    die "No binary for $os/$arch.\n       Available: darwin-arm64, darwin-x86_64, linux-x86_64.\n       (linux-arm64 was dropped — cpal cross-compile is fragile.)\n\n       This script is for CLIENT laptops (macOS or x86_64 Linux).\n       The server (this RK3588 board) does not need the stt-daemon."
+  fi
   curl -fSL --progress-bar -o "$dest" "$url" || die "Download failed: $url"
   chmod +x "$dest"
   ok "Installed $BINARY_NAME to $dest ($(du -h "$dest" | cut -f1))"
