@@ -358,7 +358,7 @@ def _run_stt(pcm_data: bytes) -> str:
             ],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=120,
         )
         if proc.returncode != 0:
             raise RuntimeError(
