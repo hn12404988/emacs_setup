@@ -72,7 +72,11 @@ async fn toggle(Extension(state): Extension<Arc<AppState>>) -> Json<ToggleRespon
                     return;
                 }
             };
-            let config = supported.config();
+            let mut config = supported.config();
+            // Force 16 kHz — the ASR model requires it.
+            config.sample_rate = cpal::SampleRate(16000);
+            eprintln!("[stt] audio config: {:?} rate={} channels={}",
+                supported.sample_format(), config.sample_rate.0, config.channels);
 
             let stream = match build_stream(&device, &supported, &config, &buffer) {
                 Ok(s) => s,
@@ -183,7 +187,8 @@ fn build_stream(
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
                 let mut b = buf.lock().unwrap();
                 for sample in data {
-                    b.extend_from_slice(&sample.to_le_bytes());
+                    let i16sample = (*sample * 32767.0) as i16;
+                    b.extend_from_slice(&i16sample.to_le_bytes());
                 }
             },
             err_fn,
