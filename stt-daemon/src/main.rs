@@ -6,6 +6,7 @@
 use axum::{extract::Extension, response::Json, routing::get, Router};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde::Serialize;
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -22,6 +23,25 @@ struct AppState {
     stt_server: String,
     stop_signal: Arc<AtomicBool>,
     capture_thread: Mutex<Option<thread::JoinHandle<()>>>,
+}
+
+fn type_text(text: &str) {
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!(
+            "tell application \"System Events\" to keystroke \"{}\"",
+            text.replace('\"', "\\\"")
+        );
+        if let Err(e) = Command::new("osascript").arg("-e").arg(&script).output() {
+            eprintln!("osascript failed: {e}");
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Err(e) = Command::new("wtype").arg(text).output() {
+            eprintln!("wtype failed: {e}");
+        }
+    }
 }
 
 async fn toggle(Extension(state): Extension<Arc<AppState>>) -> Json<ToggleResponse> {
@@ -90,8 +110,20 @@ async fn toggle(Extension(state): Extension<Arc<AppState>>) -> Json<ToggleRespon
             let client = reqwest::Client::new();
             let stt_url = state.stt_server.clone();
             tokio::spawn(async move {
-                if let Err(e) = client.post(&stt_url).body(pcm_data).send().await {
-                    eprintln!("STT POST failed: {e}");
+                match client.post(&stt_url).body(pcm_data).send().await {
+                    Ok(resp) => {
+                        match resp.json::<serde_json::Value>().await {
+                            Ok(json) => {
+                                if let Some(text) = json.get("text").and_then(|v| v.as_str()) {
+                                    if !text.is_empty() {
+                                        type_text(text);
+                                    }
+                                }
+                            }
+                            Err(e) => eprintln!("STT response parse failed: {e}"),
+                        }
+                    }
+                    Err(e) => eprintln!("STT POST failed: {e}"),
                 }
             });
         }
