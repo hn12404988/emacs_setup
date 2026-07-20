@@ -49,6 +49,7 @@ async fn toggle(Extension(state): Extension<Arc<AppState>>) -> Json<ToggleRespon
     let now_recording = !was_recording;
 
     if now_recording {
+        eprintln!("[stt] recording started");
         state.pcm_buffer.lock().unwrap().clear();
         state.stop_signal.store(false, Ordering::SeqCst);
 
@@ -95,6 +96,7 @@ async fn toggle(Extension(state): Extension<Arc<AppState>>) -> Json<ToggleRespon
 
         *state.capture_thread.lock().unwrap() = Some(handle);
     } else {
+        eprintln!("[stt] recording stopped");
         state.stop_signal.store(true, Ordering::SeqCst);
 
         if let Some(handle) = state.capture_thread.lock().unwrap().take() {
@@ -109,21 +111,31 @@ async fn toggle(Extension(state): Extension<Arc<AppState>>) -> Json<ToggleRespon
         if !pcm_data.is_empty() {
             let client = reqwest::Client::new();
             let stt_url = state.stt_server.clone();
+            let pcm_len = pcm_data.len();
+            eprintln!("[stt] sending {} bytes ({:.1}s PCM) to {}", pcm_len, pcm_len as f64 / 32000.0, stt_url);
             tokio::spawn(async move {
                 match client.post(&stt_url).body(pcm_data).send().await {
                     Ok(resp) => {
+                        let status = resp.status();
+                        eprintln!("[stt] server responded HTTP {}", status);
                         match resp.json::<serde_json::Value>().await {
                             Ok(json) => {
+                                eprintln!("[stt] response JSON: {}", json);
                                 if let Some(text) = json.get("text").and_then(|v| v.as_str()) {
                                     if !text.is_empty() {
+                                        eprintln!("[stt] transcription: \"{}\"", text);
                                         type_text(text);
+                                    } else {
+                                        eprintln!("[stt] empty transcription");
                                     }
+                                } else {
+                                    eprintln!("[stt] no 'text' field in response");
                                 }
                             }
-                            Err(e) => eprintln!("STT response parse failed: {e}"),
+                            Err(e) => eprintln!("[stt] JSON parse failed: {e}"),
                         }
                     }
-                    Err(e) => eprintln!("STT POST failed: {e}"),
+                    Err(e) => eprintln!("[stt] POST failed: {e}"),
                 }
             });
         }
