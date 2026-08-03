@@ -964,7 +964,7 @@ forge/magit's `C-c …' prefix keys keep working."
       (:info "C-c p  Projectile")
       ("C-M-f" "grep" projectile-grep
        :inapt-if-not my/projectile-project-available-p)
-      ("C-M-l" "fold" hs-toggle-hiding
+      ("C-M-l" "fold/expand" hs-toggle-hiding
        :inapt-if-not my/hs-minor-mode-active-p)
       ("M-4" "hide all folds" hs-hide-all
        :inapt-if-not my/hs-minor-mode-active-p)
