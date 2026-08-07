@@ -433,9 +433,32 @@ e() {
   fi
 }
 
+# ekill            — Soft kill via emacsclient (graceful, saves buffers).
+# ekill --force    — Hard kill: skip emacsclient, SIGTERM then SIGKILL the
+#                    daemon PID directly. Use when the daemon is dead/stuck
+#                    and emacsclient would hang. Cleans up the socket too.
 ekill() {
   local sock=$(_emacs_socket_path)
-  emacsclient -s "$sock" -e "(kill-emacs)"
+  if [ "$1" = "--force" ]; then
+    local sock_name=$(basename "$sock")
+    local pids=$(pgrep -f "emacs --daemon=.*${sock_name}")
+    if [ -z "$pids" ]; then
+      echo "ekill: no emacs daemon found for socket: $sock_name"
+      return 1
+    fi
+    echo "ekill: SIGTERM -> $pids"
+    kill -TERM $pids 2>/dev/null
+    sleep 1
+    pids=$(pgrep -f "emacs --daemon=.*${sock_name}")
+    if [ -n "$pids" ]; then
+      echo "ekill: still alive — SIGKILL $pids"
+      kill -KILL $pids 2>/dev/null
+      sleep 0.3
+    fi
+    rm -f "$sock"
+  else
+    emacsclient -s "$sock" -e "(kill-emacs)"
+  fi
 }
 
 elist() {
@@ -838,7 +861,9 @@ export EDITOR='emacsclient -nw'
 # e              — Open dired in current directory (auto-starts daemon)
 # e file.txt     — Open file in current directory's daemon
 # elist          — List all running Emacs daemons
-# ekill          — Kill the daemon for the current directory
+# ekill          — Kill the daemon for the current directory (graceful, emacsclient)
+# ekill --force  — Hard kill the daemon PID directly (SIGTERM→SIGKILL). Use when
+#                  the daemon is dead/stuck and emacsclient would hang.
 # ekillall       — Kill ALL running Emacs daemons
 # serve FILE     — Serve an .html/.htm file over HTTP via miniserve.
 #                  Binds to 0.0.0.0 by default, so open it from another

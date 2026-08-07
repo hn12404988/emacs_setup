@@ -244,6 +244,83 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
   :mode (("\\.yml\\'" . yaml-mode)
          ("\\.yaml\\'" . yaml-mode)))
 
+;; --- JSON5 / JSONC support ---
+;; JSON5 is valid ES5 syntax, so `js-mode' already understands everything
+;; JSON5 adds over plain JSON: // and /* */ comments, single-quoted strings,
+;; unquoted keys, trailing commas, hex numbers, Infinity/NaN. Deriving from
+;; it also gives us indentation (`js-indent-level', 2 below), sexp motion
+;; and imenu for free — no external package and no tree-sitter grammar to
+;; compile on each machine, so this stays portable to a new laptop.
+;;
+;; Folding needs no setup here: Emacs runs a parent mode's hooks for derived
+;; modes, so `js-mode-hook' fires in json5-mode and `my/hs-fold-on-load'
+;; (see the hideshow :hook list below) turns on hs-minor-mode and folds to
+;; level 2 on open. C-M-l / M-4 / M-5 / M-l therefore work here already.
+;; That same inheritance is why the LSP hooks need an explicit json5 guard —
+;; see `my/setup-ts-js-lsp' and `my/js-lsp-deferred'.
+;;
+;; js.el is deliberately NOT required here. `define-derived-mode' only calls
+;; the parent at runtime, so js.el autoloads on the first .json5/.js file
+;; instead of costing ~115 ms of every startup (measured on this rk3588).
+;; One consequence: until js.el loads, the static parent chain stops at
+;; js-mode, so `(provided-mode-derived-p 'json5-mode 'prog-mode)' answers nil.
+;; Inside a live json5 buffer js.el is loaded, so `derived-mode-p' and
+;; `prog-mode-hook' both behave normally.
+
+(defconst my/json5-key-regexp
+  (rx (or bol (any "{[,"))
+      (* (in " \t\n"))
+      (group (or (: ?\" (* (or (not (any "\"\\")) (: ?\\ nonl))) ?\")
+                 (: ?\' (* (or (not (any "'\\")) (: ?\\ nonl))) ?\')
+                 (: (any "A-Za-z_$") (* (any "A-Za-z0-9_$")))))
+      (* (in " \t\n"))
+      ?:)
+  "Match a JSON5 object key in group 1: bare, \"quoted\" or 'quoted'.")
+
+(defun my/json5-match-key (limit)
+  "Font-lock matcher for JSON5 object keys, searching up to LIMIT.
+Skips any match starting inside a string or comment, so a \"foo\":
+written inside a // comment is not repainted as a key."
+  (catch 'found
+    (while (re-search-forward my/json5-key-regexp limit t)
+      (let ((state (syntax-ppss (match-beginning 1))))
+        (unless (or (nth 3 state) (nth 4 state))
+          (throw 'found t))))
+    nil))
+
+(define-derived-mode json5-mode js-mode "JSON5"
+  "Major mode for JSON5 and JSONC files."
+  ;; Indent with spaces. `indent-tabs-mode' is t globally in this config
+  ;; (see setq-default below), which would give a 4-column indent one literal
+  ;; TAB while the 2-column first level stays spaces — mixed indentation in a
+  ;; format that is conventionally space-indented. Existing files are not
+  ;; reformatted either way; this only affects lines you add or re-indent.
+  (setq-local indent-tabs-mode nil)
+  (setq-local tab-width 2)
+  ;; js-mode leaves object keys completely unfaced, which is unreadable in a
+  ;; file where every key is bare. OVERRIDE is t so quoted keys win over the
+  ;; string face applied by syntactic fontification; my/json5-match-key is
+  ;; what keeps that override out of comments and strings.
+  (font-lock-add-keywords
+   nil '((my/json5-match-key (1 font-lock-variable-name-face t))) 'append))
+
+;; Ghost text off in JSON5 buffers. json5-mode derives from prog-mode, so
+;; `inline-suggestion-mode' would otherwise be on and fire /infill on every
+;; keystroke, competing for the server's single NPU slot — the same reason
+;; it is disabled in commit buffers. This must run from `json5-mode-hook'
+;; (which runs last) rather than the mode body, because `prog-mode-hook'
+;; enables the minor mode after the body has finished.
+(add-hook 'json5-mode-hook
+          (lambda ()
+            (when (bound-and-true-p inline-suggestion-mode)
+              (inline-suggestion-mode -1))))
+
+(add-to-list 'auto-mode-alist '("\\.json5\\'" . json5-mode))
+;; JSONC (deno.jsonc, tsconfig.json, .vscode/settings.json) is a strict
+;; subset of JSON5, and had no mode at all before this — its comments were
+;; being reported as syntax errors.
+(add-to-list 'auto-mode-alist '("\\.jsonc\\'" . json5-mode))
+
 ;; Flycheck for syntax checking
 (use-package flycheck
   :config
@@ -303,29 +380,46 @@ Works over SSH through tmux (requires `set -s set-clipboard on`)."
   (let ((dir (or buffer-file-name default-directory)))
     (cl-some (lambda (f) (locate-dominating-file dir f)) files)))
 
+(defun my/json5-buffer-p ()
+  "Return non-nil in a JSON5/JSONC buffer.
+`json5-mode' derives from `js-mode', and Emacs runs a parent mode's
+hooks for derived modes, so every `js-mode-hook' entry also fires on
+.json5 files. LSP entries must opt out: a config file has no business
+starting deno or ts-ls."
+  (derived-mode-p 'json5-mode))
+
+(defun my/js-lsp-deferred ()
+  "Run `lsp-deferred', except in JSON5/JSONC buffers."
+  (unless (my/json5-buffer-p)
+    (lsp-deferred)))
+
 (defun my/setup-ts-js-lsp ()
-  "Configure LSP client per-project: Deno for Deno projects, ts-ls for Node."
-  (condition-case err
-      (if (my/project-has-file-p "deno.json" "deno.jsonc")
-          ;; Deno project
-          (progn
-            (setq-local lsp-disabled-clients '(ts-ls))
-            (setq-local lsp-deno-enable t))
-        (if (my/project-has-file-p "package.json" "tsconfig.json")
-            ;; Node.js project
+  "Configure LSP client per-project: Deno for Deno projects, ts-ls for Node.
+Does nothing in JSON5/JSONC buffers; see `my/json5-buffer-p'."
+  (unless (my/json5-buffer-p)
+    (condition-case err
+        (if (my/project-has-file-p "deno.json" "deno.jsonc")
+            ;; Deno project
             (progn
-              (setq-local lsp-disabled-clients '(deno-ls))
-              (setq-local lsp-deno-enable nil))
-          ;; No marker found — default to Deno
-          (setq-local lsp-disabled-clients '(ts-ls))
-          (setq-local lsp-deno-enable t)))
-    (error (message "my/setup-ts-js-lsp: %s" err))))
+              (setq-local lsp-disabled-clients '(ts-ls))
+              (setq-local lsp-deno-enable t))
+          (if (my/project-has-file-p "package.json" "tsconfig.json")
+              ;; Node.js project
+              (progn
+                (setq-local lsp-disabled-clients '(deno-ls))
+                (setq-local lsp-deno-enable nil))
+            ;; No marker found — default to Deno
+            (setq-local lsp-disabled-clients '(ts-ls))
+            (setq-local lsp-deno-enable t)))
+      (error (message "my/setup-ts-js-lsp: %s" err)))))
 
 ;; LSP mode for IDE features (completion, go-to-definition, etc.)
 (use-package lsp-mode
   :hook ((rust-mode . lsp-deferred)
          (typescript-mode . lsp-deferred)
-         (js-mode . lsp-deferred)
+         ;; js-mode-hook also fires in json5-mode (derived); the wrapper
+         ;; keeps LSP off .json5/.jsonc. See `my/js-lsp-deferred'.
+         (js-mode . my/js-lsp-deferred)
          (typescript-ts-mode . lsp-deferred) ;; For Emacs 29+ tree-sitter users
          (python-mode . lsp-deferred)
          (c-mode . lsp-deferred)
