@@ -4,6 +4,8 @@ description: Hand off the current work to a fresh coding-agent session in a new 
 disable-model-invocation: true
 user-invocable: true
 argument-hint: [--cwd <path>] <free-form message from user>
+metadata:
+  allow-implicit-invocation: false
 ---
 
 # /bounce — Hand off work to a fresh agent session in a new tmux window

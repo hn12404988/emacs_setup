@@ -4,6 +4,8 @@ description: Catch the user up after a pause. Surface only what needs them — d
 disable-model-invocation: true
 user-invocable: true
 argument-hint: <optional free-form message from user>
+metadata:
+  allow-implicit-invocation: false
 ---
 
 # /recall — What Needs You Right Now

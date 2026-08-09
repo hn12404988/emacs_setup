@@ -1,6 +1,10 @@
 ---
 name: source
 description: Ground a topic, term, or name the user is confused about in concrete source locations. Given a topic as argument, search the current project (or a user-specified directory) and tell a short story about where it lives — definition, the most telling usage (the turn), and where to start reading. Every claim is anchored to a real `file:line`. Output is in simple English. Not for interpreting session/discussion content — this skill targets files on disk.
+disable-model-invocation: true
+user-invocable: true
+metadata:
+  allow-implicit-invocation: false
 ---
 
 # /source — Ground a Topic with a Short Story of Anchors

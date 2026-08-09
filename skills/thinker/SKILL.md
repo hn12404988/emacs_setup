@@ -4,6 +4,8 @@ description: Enter an adversarial peer-thinking mode for open discussion. The po
 disable-model-invocation: true
 user-invocable: true
 argument-hint: <free-form message from user>
+metadata:
+  allow-implicit-invocation: false
 ---
 
 # Thinker mode

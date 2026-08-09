@@ -4,6 +4,8 @@ description: Produce a clean, up-to-date summary of the current discussion — p
 disable-model-invocation: true
 user-invocable: true
 argument-hint: <optional free-form message from user>
+metadata:
+  allow-implicit-invocation: false
 ---
 
 # /collect — Fresh Summary of Current State

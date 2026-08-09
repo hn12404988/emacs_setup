@@ -4,6 +4,8 @@ description: Turn on "pieces mode". Instead of dumping a wall of complex informa
 disable-model-invocation: true
 user-invocable: true
 argument-hint: [optional: a file path, a topic, or nothing for the current context]
+metadata:
+  allow-implicit-invocation: false
 ---
 
 # /pieces — One Small Piece at a Time
