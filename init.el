@@ -137,32 +137,58 @@ started as a daemon outside tmux)."
   (and (executable-find "tmux")
        (= 0 (call-process "tmux" nil nil nil "has-session"))))
 
+(defun my/wayland-available-p ()
+  "Return non-nil if wl-copy/wl-paste can actually reach a compositor.
+`executable-find' is not enough: the daemon is started with `env -i',
+so WAYLAND_DISPLAY must have been passed in explicitly or wl-copy
+fails with \"XDG_RUNTIME_DIR is invalid or not set\"."
+  (and (getenv "WAYLAND_DISPLAY")
+       (getenv "XDG_RUNTIME_DIR")))
+
 (defun my/clipboard-copy-text (text)
   "Copy TEXT to system clipboard (cross-platform).
-On non-macOS, also sends OSC 52 so the content reaches the local
-terminal clipboard (e.g. Mac mini when SSH'd into a Linux box)."
-  (cond
-   ((eq system-type 'darwin)
-    (with-temp-buffer
-      (insert text)
-      (call-process-region (point-min) (point-max) "pbcopy")))
-   ((my/tmux-reachable-p)
-    (with-temp-buffer
-      (insert text)
-      (call-process-region (point-min) (point-max) "tmux" nil nil nil "load-buffer" "-"))
-    ;; Also push to the SSH client's clipboard via OSC 52
-    (my/osc52-copy text))
-   ((executable-find "xclip")
-    (with-temp-buffer
-      (insert text)
-      (call-process-region (point-min) (point-max) "xclip" nil nil nil "-selection" "clipboard")))))
+
+Every backend that is available is used, not just the first match.
+They land in different places and we usually want all of them:
+`wl-copy' sets the Wayland clipboard of the local machine, `tmux
+load-buffer' fills the tmux paste buffer, and OSC 52 travels down
+the terminal so it reaches the clipboard of whatever machine we
+are SSH'd in from.
+
+This used to be a `cond', which picked one branch and dropped the
+rest.  On a Wayland box with no tmux and no xclip it matched
+nothing at all, so copying silently did nothing, and OSC 52 never
+fired because it was nested inside the tmux branch."
+  (if (eq system-type 'darwin)
+      (with-temp-buffer
+        (insert text)
+        (call-process-region (point-min) (point-max) "pbcopy"))
+    (when (and (executable-find "wl-copy") (my/wayland-available-p))
+      (with-temp-buffer
+        (insert text)
+        (call-process-region (point-min) (point-max) "wl-copy")))
+    (when (my/tmux-reachable-p)
+      (with-temp-buffer
+        (insert text)
+        (call-process-region (point-min) (point-max) "tmux" nil nil nil "load-buffer" "-")))
+    (when (executable-find "xclip")
+      (with-temp-buffer
+        (insert text)
+        (call-process-region (point-min) (point-max) "xclip" nil nil nil "-selection" "clipboard")))
+    ;; Unconditional, unlike before: this is the one path that works with
+    ;; no helper binary at all, and the only one that crosses SSH.
+    (my/osc52-copy text)))
 
 (defun my/clipboard-paste-text ()
-  "Return current system clipboard content as string (cross-platform)."
+  "Return current system clipboard content as string (cross-platform).
+Unlike copying there is no OSC 52 option here -- OSC 52 reads are
+refused by most terminals, so pasting needs a real local backend."
   (string-trim-right
    (cond
     ((eq system-type 'darwin)
      (shell-command-to-string "pbpaste"))
+    ((and (executable-find "wl-paste") (my/wayland-available-p))
+     (shell-command-to-string "wl-paste -n"))
     ((my/tmux-reachable-p)
      (shell-command-to-string "tmux save-buffer -"))
     ((executable-find "xclip")
