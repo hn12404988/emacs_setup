@@ -213,7 +213,11 @@ it, and why that role. Still name it before touching the file.
 The role thinking is required. The realization follows the language:
 
 - **Rust** — a trait for the contract, a struct + impl for the role. Enum for a
-  Policy. The trait *is* the boundary.
+  Policy. The trait *is* the boundary. **Every non-main function must live inside
+  an `impl` block.** A bare `pub fn` at file scope is homeless work — it has no
+  owner, no boundary, and no reason to exist alone. Even infrastructure code
+  (paths, client, config) gets a struct: `AtddPaths`, `GqlClient`, `AppConfig`.
+  The only exceptions are `main()` and `#[tokio::main]`.
 - **TypeScript / Python** — a class, and an interface / Protocol at a real seam.
 - **React** — a hook or a component with one job. `useCartRemoval` is a Worker.
   A component that validates, fetches, and renders is one-layer code in a `.tsx`.
@@ -237,6 +241,8 @@ a conversation. That is all a role ever was.
 | One role reaches into another's insides | the boundary is decoration | talk through the interface |
 | A boolean flag changes what it does | one role doing two jobs | split, or extract a Policy |
 | A file keeps growing and you keep adding | the role stopped being one job | zoom it into a cast |
+| A bare function at file scope (`pub fn …`) | homeless work — no owner, no boundary | put it inside an `impl` block for its natural owner. If no owner exists, create the struct. Even a one-method struct is a role — the function alone is not. |
+| A module with no structs, only functions | a `Utils` folder that nobody named `Utils` — the jobs are real, the home is missing | group the functions under a struct whose name answers \"who does this work here?\" |
 
 ---
 

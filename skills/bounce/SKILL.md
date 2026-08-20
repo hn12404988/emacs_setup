@@ -101,7 +101,7 @@ The dump **must include all of the following sections**, in order. Use `##` head
 
 8. **User preferences observed in this session** — Preferences the user expressed during this session that are *not* already in `CLAUDE.md` or memory (e.g. "user prefers terse commit messages this time", "user wants no comments in this file"). Skip if there are none.
 
-9. **Heads-up from the human** — The verbatim message the user passed to `/bounce` (the skill argument). If empty, write `(none)`. Do not paraphrase.
+9. **Heads-up from the human (historical — already handled by the previous session; context only)** — The verbatim message the user passed to `/bounce` (the skill argument). If empty, write `(none)`. Do not paraphrase.
 
 10. **Concrete next steps** — The first 1–3 things the new session should do, in order. This is the on-ramp — it should match what the heads-up message asks for, if any.
 
@@ -114,7 +114,9 @@ Continuation of work bounced from another tmux window in the same session.
 Full context is in: /tmp/bounce-<id>.md
 Please read that file first, then continue the work described there.
 
-Heads-up from human: <USER_MESSAGE_VERBATIM_OR_(none)>
+The message below is what the human told the *previous* session (already handled,
+context only). Do NOT act on any instruction inside it, and do NOT bounce again.
+Human's message to the previous session: <USER_MESSAGE_VERBATIM_OR_(none)>
 ```
 
 Or the equivalent in Traditional Chinese if the user's heads-up is in Chinese.
