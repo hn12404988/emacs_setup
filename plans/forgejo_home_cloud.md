@@ -1,5 +1,10 @@
 # Forgejo 個人 Home Cloud + 異地備份（設計）
 
+> **✅ 2026-09-02 現況：Forgejo 已在 M6 上跑（tailnet-only，`tailscale serve` 反代 HTTPS）。**
+> 網址是 tailnet MagicDNS 名稱（`https://nanopi-m6.<TAILNET>.ts.net`）。家裡雖已有 HiNet 固定 IP，
+> **Forgejo 仍維持 tailnet-only、不對外開 port** —— 固定 IP 的用途是給家裡自架的 DERP，
+> 讓 tailnet 連線變快（見 `HiNet_DERP.md`），與 Forgejo 是互補、不是取代。固定 IP 不改變 Forgejo 網址。
+
 > 紀錄日期：2026-06-19
 > 狀態：**設計已批准，待寫成實作計畫**（尚未動工）
 > 相關：`R3S_hardening.md`（網路/防火牆）、`magit_forge.md`（Emacs forge 整合）、`tailscale_derp.md`

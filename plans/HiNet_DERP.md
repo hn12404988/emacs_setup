@@ -1,5 +1,19 @@
 # HiNet 固定 IP 自架 DERP 計畫（取代 AWS）
 
+> **✅ 2026-09-02 已完成（最終做法比原計畫更順，摘要如下；真實帳密/IP 只存本機私有處，不入本公開 repo）**
+>
+> - HiNet 光世代固定 IP 已裝。R3S 用 PPPoE（帳號 `<HN_ID>@ip.hinet.net`，連線密碼離線保管）
+>   在 eth0 **經小烏龜的 pppoePassThrough** 撥號，拿到固定公開 IP（值離線保管）。
+> - **小烏龜完全不用改橋接** —— passthrough 是現成的，且固定制 `@ip` 與動態 `@wifi` 是不同帳號、
+>   可並存。全程零斷網（只有實體換線 1~2 分鐘），回復也最簡單（小烏龜沒被改過）。
+> - **derper 跑在 R3S**：aarch64 靜態 binary、procd 服務 `derper`、Let's Encrypt 憑證（TLS-ALPN-01，自動續）。
+>   中繼 + STUN 用外部網路（手機熱點）實測正常；Tailscale 已自動選用家裡 twn region，延遲低於官方香港。
+> - **DNS**：`derp.<DERP_DOMAIN>` A record → 固定 IP；Route53 zone `<ROUTE53_ZONE_ID>`，auto-renew 已開。
+> - **防火牆/安全**：WAN 放行 inbound 80/443/3478 給 DERP；SSH 只聽 LAN、公開 IP 上不開 SSH；WAN `input=DROP`。
+>   LuCI(uhttpd) 已從 80/443 移到 **8080/8443**（管理走 `https://192.168.1.1:8443`）。
+>
+> 以下為原始規劃，保留作背景。
+
 > **目標**：自己簽一條中華電信（HiNet）固定 IP 線路，讓家裡 R3S 直接拿到
 > 可控的真公開 IP，在 R3S 上自架 DERP，然後**關掉 AWS Taipei DERP**。
 >

@@ -1,5 +1,18 @@
 # NanoPi R3S（OpenWrt 軟路由）安全強化紀錄
 
+> **✅ 2026-09-02 重大變更：R3S 已成為家裡的邊緣主路由（HiNet 固定 IP）。下面舊紀錄的
+> 「WAN = 大樓網路 172.16.x」已過時。** 現況：
+>
+> - **WAN(eth0)：PPPoE 撥 HiNet，持有固定公開 IP**（值離線保管，不入 repo）。威脅模型改變 ——
+>   WAN 面對的是開放的網際網路，不再是大樓內網。
+> - WAN 防火牆維持 `input=DROP` + 不回 ping；但為自架 DERP 額外放行 **inbound 80 / 443 / 3478**
+>   （derper 在本機聽這幾個埠）。**SSH 仍只聽 LAN，公開 IP 上不開 SSH。**
+> - **LuCI(uhttpd) 已從 80/443 移到 8080/8443**（讓 derper 用標準 443）；管理走 `https://192.168.1.1:8443`。
+> - 新增 procd 服務 `derper`（開機自啟）。另加 hotplug：lan ifup 後重啟 uhttpd（修開機競爭）。
+> - 小烏龜(GPON ONT)接在 R3S 的 WAN 側當純數據機 + passthrough；家裡設備都在 R3S 後面。
+>
+> 以下為原始硬化紀錄，多數仍適用（金鑰登入、adblock、服務只綁 LAN），保留作背景。
+
 > 紀錄日期：2026-06-19
 > 對象：家裡的 NanoPi R3S 軟路由
 > 連線方式：`ssh root@192.168.1.1`（**只能金鑰登入**，見下方）

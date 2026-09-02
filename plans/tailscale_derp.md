@@ -1,5 +1,13 @@
 # Tailscale DERP 計畫 — 目標：搬到家裡 R3S
 
+> **✅ 2026-09-02 更新：本檔「大樓共用網路做不到 DERP」的卡關已解除。**
+>
+> 已改拉 HiNet 光世代固定 IP，R3S 站到最邊緣、持有固定公開 IP，成功在 R3S 自架 DERP。
+> Tailscale 已自動選用家裡 twn region，延遲低於官方香港（保留香港當備援，`OmitDefaultRegions:false`）。
+> **AWS Taipei DERP 已退役**（terraform 資源已清空）。完成細節見 `HiNet_DERP.md` 頂部更新。
+>
+> 以下為當初「為什麼大樓網路做不到 + AWS 現役紀錄」，保留作背景。
+
 > **本檔目標**：把 DERP 從 AWS 搬到家裡的 NanoPi R3S（軟路由），省掉雲端
 > ~$15/月。
 >
