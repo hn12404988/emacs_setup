@@ -1,5 +1,5 @@
 [Unit]
-Description=Forgejo nightly backup (dump -> R3S local copy)
+Description=Forgejo nightly backup (dump -> R3S local copy + AWS S3)
 After=network-online.target forgejo.service
 Wants=network-online.target
 

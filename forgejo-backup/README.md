@@ -1,4 +1,4 @@
-# forgejo-backup — M6 每晚把 Forgejo 備份推到 R3S
+# forgejo-backup — M6 每晚把 Forgejo 備份推到 R3S + AWS S3
 
 本目錄是**已部署**的檔案的版本控制副本。實際部署位置：
 
@@ -13,10 +13,20 @@
 ## 它做什麼
 
 每晚（03:30）以 root 觸發 → 以 `git` 身分 `forgejo dump`（產生**自包含** zip：repos + `forgejo-db.sql`
-+ 原始 `data/forgejo.db` + `app.ini`）→ 透過 SSH（`/root/.ssh/id_forgejo_backup`）推到
-`R3S:/backup/forgejo/forgejo-YYYYMMDD-HHMM.zip` → 在 R3S 刪掉 30 天前的舊檔 → 清掉 M6 暫存。
++ 原始 `data/forgejo.db` + `app.ini`）→ 同一份 zip 分別推往：
 
-> 這是 3-2-1 的**第 2 份（本地副本）**。R3S 與 M6 同棟，**不抗火災/失竊**；真正的異地第 3 份（S3 + 加密）尚未做。
+1. **R3S**：透過 SSH（`/root/.ssh/id_forgejo_backup`）推到
+   `R3S:/backup/forgejo/forgejo-YYYYMMDD-HHMM.zip`，並在 R3S 刪掉 30 天前的舊檔。
+2. **AWS S3**：用專用 IAM profile `forgejo-backup` 上傳到
+   `s3://forgejo-backup-020195185189-ap-east-2-an/forgejo-YYYYMMDD-HHMM.zip`。
+   - 該 IAM 金鑰**只能 `s3:PutObject`**，不能讀 / 刪 / 列。
+   - 上傳後比對 `ETag` 與本地 `md5sum`（單一 PUT，ETag 即 MD5）。
+   - 不做用戶端加密；bucket 已開 SSE-S3 AES256。
+   - 過期由 bucket lifecycle 管理：**30 天**自動刪除。
+
+兩個目的地互相獨立：R3S 失敗不擋 S3，反之亦然；任一失敗 → service 以非零結束（systemd 記 failure）。
+
+> 3-2-1：R3S 是**第 2 份（本地副本，快速還原）**；S3 是**第 3 份（異地，抗火災/失竊）**。
 
 ## 重新部署
 
@@ -40,9 +50,12 @@ systemctl list-timers forgejo-backup.timer --no-pager      # 看下次排程
 ## 還原（已驗證可行的路徑：用原始 forgejo.db，不需重放 SQL）
 
 ```sh
-# 1) 取回某天的備份
+# 1) 取回某天的備份（R3S 最快；或從 S3 用 admin profile 下載）
 sudo ssh -i /root/.ssh/id_forgejo_backup root@192.168.1.1 \
   'cat /backup/forgejo/forgejo-YYYYMMDD-HHMM.zip' > restore.zip
+
+# 從 S3 下載（用 willy admin；forgejo-backup 專用金鑰不能讀）
+aws s3 cp s3://forgejo-backup-020195185189-ap-east-2-an/forgejo-YYYYMMDD-HHMM.zip restore.zip --profile willy
 # 2) 解開
 unzip restore.zip -d restore/
 # 3) 停服務、還原資料目錄與設定

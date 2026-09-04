@@ -88,9 +88,10 @@ Prevents sending another request until the current one completes.")
 
 (defvar inline-suggestion--keymap
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "TAB") #'inline-suggestion-accept)
-    (define-key map (kbd "<tab>") #'inline-suggestion-accept)
-    (define-key map (kbd "M-D") #'inline-suggestion-accept-next-word)
+    ;; TAB accepts the next word from the suggestion. There is deliberately
+    ;; no "accept all" binding (see inline-suggestion-accept) and no M-D.
+    (define-key map (kbd "TAB") #'inline-suggestion-accept-next-word)
+    (define-key map (kbd "<tab>") #'inline-suggestion-accept-next-word)
     (define-key map (kbd "C-g") #'inline-suggestion-dismiss)
     (define-key map [escape] #'inline-suggestion-dismiss)
     (define-key map [t] #'inline-suggestion-dismiss-and-replay)

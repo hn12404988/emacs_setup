@@ -140,8 +140,7 @@ M6 root systemd timer（每晚 03:30）:
 
 ## 9. 不在本次範圍（後續）
 
-- **S3 異地備份（第 3 份）+ `age` 加密** —— 真正抗火災/失竊的那份；屆時：dump → `age` 加密 →
-  推 R3S **和** S3；S3 用只寫 IAM 金鑰 + bucket lifecycle 過期。加密私鑰**離線保管、不可只存 M6**。
+- **S3 異地備份（第 3 份）** —— ✅ 已於 2026-09-04 完成（見 §11 更新）。採**無用戶端加密** + 只寫 IAM 金鑰 + bucket lifecycle；`age` 加密未採用。
 - LFS（目前 `LFS_START_SERVER = false`，dump 自然不含 LFS 物件；之後開 LFS 再一併納入備份驗證）。
 
 ---
@@ -173,4 +172,9 @@ M6 root systemd timer（每晚 03:30）:
    不認得 → 直接 `sqlite3 < forgejo-db.sql` 會失敗。**還原請用 dump 內的原始 `data/forgejo.db`**（已驗證 ok）；
    若要走 SQL 路徑，需換一個支援 `unistr()` 的 sqlite3。
 
-**仍未做（同 §9）**：S3 異地第 3 份 + `age` 加密。這一步只完成「本地副本」層。
+**2026-09-04 更新：S3 異地第 3 份已接上（無用戶端加密）**
+- Bucket：`s3://forgejo-backup-020195185189-ap-east-2-an`（ap-east-2，SSE-S3 AES256）
+- 專用 IAM user `forgejo-backup` + managed policy `forgejo-backup-putonly`（僅 `s3:PutObject`，不能讀/刪/列）
+- S3 lifecycle：30 天過期（rule `expire-forgejo-backups-30d`）
+- 同一份 dump 同時推 R3S 與 S3，兩者獨立；S3 上傳後以 `ETag == 本地 MD5` 驗證（單一 PUT）
+- 決策：不做用戶端加密，依賴 bucket SSE-S3；未採用原始設計的 `age` 加密
