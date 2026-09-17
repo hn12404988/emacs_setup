@@ -357,8 +357,13 @@ written inside a // comment is not repainted as a key."
   :diminish
   :config
   (projectile-mode +1)
-  ;; Use ido for projectile-find-file so ido-enable-flex-matching applies
-  (setq projectile-completion-system 'ido)
+  ;; Use ido for projectile-find-file so ido-enable-flex-matching applies.
+  ;; Projectile 3.5 (commit d6aa232, 2026-07-01) deleted the legacy 'ido /
+  ;; 'ivy / 'helm values -- they are not functions, so they silently fall
+  ;; back to plain `completing-read' (no live candidate list). A function is
+  ;; still honoured, so pass ido in explicitly.
+  (setq projectile-completion-system
+        (lambda (prompt choices) (ido-completing-read prompt choices)))
   ;; Include git-ignored files (like .env) in projectile-find-file
   (setq projectile-git-command "git ls-files -zco --exclude-standard && git ls-files -zcoi --exclude-standard -- ':!target' ':!node_modules'")
   (setq projectile-globally-ignored-directories
