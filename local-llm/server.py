@@ -28,7 +28,6 @@ import ctypes
 import json
 import os
 import re
-import sherpa_onnx
 import struct
 import sys
 import threading
