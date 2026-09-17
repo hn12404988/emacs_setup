@@ -90,10 +90,11 @@ M6 root systemd timer（每晚 03:30）:
 
 | 位置 | 路徑 | 保留 | 機制 |
 |---|---|---|---|
-| R3S（本地副本） | `/backup/forgejo/` | **30 天** | M6 的 script 透過 SSH 跑 `find /backup/forgejo -name 'forgejo-*.tar.gz' -mtime +30 -delete` |
+| R3S（本地副本） | `/backup/forgejo/` | ~~**30 天**~~ → **7 天**（2026-09-05 改） | M6 的 script 透過 SSH 跑 `find /backup/forgejo -name 'forgejo-*.zip' -mtime +7 -exec rm -f {} +` |
 
-> 為什麼 30 天：每份 dump 現在約 3MB，30 份 ≈ 90MB，對 108GB 完全無感。
-> 留一個月 = 萬一較晚才發現資料毀損，仍有一個月的歷史可回溯。日後資料變大再調。
+> ~~為什麼 30 天：每份 dump 現在約 3MB，30 份 ≈ 90MB，對 108GB 完全無感。~~
+> **2026-09-05 改為 7 天**：頻率提高到每 4 小時後，7 天 = 最多 42 份；單份 dump 已長到約 48MB
+> → R3S 約 2GB、S3 約 2GB。用「更密的 RPO（4 小時）」換「較短的歷史（7 天）」。
 
 ---
 
@@ -128,8 +129,8 @@ M6 root systemd timer（每晚 03:30）:
 
 | 項目 | 值 |
 |---|---|
-| 執行時間 | 每晚 **03:30**（`OnCalendar=*-*-* 03:30:00`，`Persistent=true`）|
-| 保留 | R3S **30 天** |
+| 執行時間 | ~~每晚 **03:30**~~ → **每 4 小時**（`OnCalendar=*-*-* 03/4:30:00` = 03:30/07:30/11:30/15:30/19:30/23:30，`Persistent=true`）|
+| 保留 | ~~R3S **30 天**~~ → R3S **7 天**、S3 lifecycle **7 天** |
 | 打包格式 | ~~`forgejo-YYYYMMDD-HHMM.tar.gz`（含 dump.zip + app.ini）~~ → **實作改為直接推 `forgejo-YYYYMMDD-HHMM.zip`**（dump 已自包含，見 §2 修正）|
 | 執行身分 | systemd timer 以 **root**；dump 子步驟以 **git** |
 | 推送金鑰 | root 專用 `/root/.ssh/id_forgejo_backup`，公鑰加到 R3S |
@@ -178,3 +179,29 @@ M6 root systemd timer（每晚 03:30）:
 - S3 lifecycle：30 天過期（rule `expire-forgejo-backups-30d`）
 - 同一份 dump 同時推 R3S 與 S3，兩者獨立；S3 上傳後以 `ETag == 本地 MD5` 驗證（單一 PUT）
 - 決策：不做用戶端加密，依賴 bucket SSE-S3；未採用原始設計的 `age` 加密
+
+**2026-09-05 更新：頻率改每 4 小時、保留改 7 天**
+- 為什麼：RPO 從「最多丟 24 小時」縮到「最多丟 4 小時」；代價是歷史只留 7 天。
+- Timer：`OnCalendar=*-*-* 03/4:30:00`（03:30 / 07:30 / 11:30 / 15:30 / 19:30 / 23:30），`Persistent=true` 不變。
+- R3S：script 內 `RETAIN_DAYS=30` → `7`。
+- S3：lifecycle rule 由 `expire-forgejo-backups-30d`（30 天）換成 `expire-forgejo-backups-7d`（7 天）；
+  以 `willy` admin profile 套用（`forgejo-backup` 專用金鑰只能 PutObject，改不了 lifecycle）。
+- 容量：42 份 × 約 48MB ≈ 2GB（R3S 與 S3 各一份）。
+- 已驗證：`systemd-analyze calendar` 展開正確；`list-timers` 顯示下次 2026-09-05 15:30 CST；
+  `get-bucket-lifecycle-configuration` 讀回 `Days: 7`。
+
+**2026-09-05 追加：zip 內附消毒過的 `~/.bashrc` + 兩個 shell 指令**
+- 每次 dump 後把 `/home/m6/.bashrc` 的消毒版加進同一個 zip（`bashrc-sanitized.txt`）。
+  規則：**第一個字是 `export` 的整行刪掉**（可能含金鑰），留下 `# [redacted export] <VAR>`；
+  被刪行的 `\` 續行一併刪。Fail-closed：殘留任何 export 行就不放進 zip，並讓該次備份失敗。
+- 取捨（已知）：無害的 `PATH` / `LANG` / `EDITOR` export 也被刪 → 該副本**不可直接執行**，是參考用；
+  反之，非 `export` 開頭的機密（例如藏在 alias 裡）**不會**被刪。規則是「以 export 開頭」，不是偵測機密。
+- 摘要行加上 `bashrc=ok|skip|fail`。
+- `bashrc-block.sh`（版本控制在 `../forgejo-backup/`，內容貼在 `~/.bashrc`）提供：
+  `backupstatus`（7 天健康度：結論 / timer / journal 成敗數 / R3S+S3 份數 / 每日表 / 失敗清單）
+  與 `backupnow`（立刻跑一次並印結果）。
+- 每日表的「應有份數」從 timer 檔安裝日起算，避免把改制前的日子誤報成漏跑。
+- 已驗證：跑一次 `backupnow` → `bashrc=ok`；從 R3S 取回該 zip 解開後，`bashrc-sanitized.txt`
+  殘留 export 行 = 0、已知金鑰字串 = 0、行號與原檔對齊。
+- 順帶查到：**2026-09-01 / 09-02 兩次備份是失敗的**（`ssh: connect to 192.168.1.1 timed out`，
+  當時還是舊版 script，R3S 連不上就整個結束），所以 R3S / S3 都沒有那兩天的檔。

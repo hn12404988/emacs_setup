@@ -1,7 +1,8 @@
 #!/bin/sh
-# Forgejo nightly backup: dump (self-contained zip) -> R3S local copy + AWS S3.
+# Forgejo backup (every 4h): dump (self-contained zip) -> R3S local copy + AWS S3.
 # The dump already includes app.ini + forgejo-db.sql + all repos + data dir,
 # so no separate bundling is needed (verified on Forgejo v15.0.3).
+# A SANITIZED copy of ~/.bashrc is added into the same zip (see step 1b).
 # R3S and S3 are independent: one destination failing does not block the other.
 # S3 upload uses a dedicated IAM key that can only PutObject (no read/delete/list).
 # Design:  plans/forgejo_backup_r3s.md
@@ -14,7 +15,8 @@ STAGING=/var/lib/forgejo/backups
 R3S=root@192.168.1.1
 R3S_KEY=/root/.ssh/id_forgejo_backup
 R3S_DIR=/backup/forgejo
-RETAIN_DAYS=30
+RETAIN_DAYS=7
+BASHRC=/home/m6/.bashrc
 RUNUSER=/usr/sbin/runuser
 SSH="ssh -i ${R3S_KEY} -o BatchMode=yes -o ConnectTimeout=10"
 S3_BUCKET=forgejo-backup-020195185189-ap-east-2-an
@@ -29,6 +31,47 @@ install -d -o git -g git -m 700 "$STAGING"
 rm -f "$STAGING"/forgejo-*.zip
 "$RUNUSER" -u git -- env GITEA_WORK_DIR="$WORKDIR" \
   /usr/local/bin/forgejo dump --config "$CONF" --file "$STAGING/$BUNDLE" --type zip --tempdir "$STAGING"
+
+# 1b) add a SANITIZED copy of ~/.bashrc into the same zip.
+# Every line whose first word is `export` is dropped -- the user's rule: those
+# lines may hold credentials, and this zip leaves the LAN (S3). A dropped line
+# ending in `\` takes its continuation lines with it. Each drop leaves
+# "# [redacted export] <VAR>" so a restore can see what used to be there.
+# NOTE: this also drops harmless PATH/locale exports -> the copy is a
+# REFERENCE, not a runnable .bashrc.
+# Fail-closed: if any `export` line survived, the file is NOT shipped.
+BASHRC_STATE=skip
+if [ -r "$BASHRC" ]; then
+  SANITIZED="$STAGING/bashrc-sanitized.txt"
+  {
+    echo "# SANITIZED copy of $BASHRC  --  $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    echo "# Every line starting with 'export' was removed (possible credentials)."
+    echo "# NOT runnable as-is: PATH / locale exports were removed too."
+    echo "#"
+    awk '
+      cont                              { if ($0 !~ /\\$/) cont = 0
+                                          print "# [redacted export continuation]"; next }
+      /^[[:space:]]*export[[:space:]]/  { name = $2; sub(/=.*$/, "", name)
+                                          print "# [redacted export] " name
+                                          if ($0 ~ /\\$/) cont = 1
+                                          next }
+                                        { print }
+    ' "$BASHRC"
+  } > "$SANITIZED"
+  if grep -qE '^[[:space:]]*export[[:space:]]' "$SANITIZED"; then
+    echo "ERROR: bashrc sanitize left an export line -- not shipping it" >&2
+    BASHRC_STATE=fail
+  elif zip -jq "$STAGING/$BUNDLE" "$SANITIZED" \
+       && unzip -l "$STAGING/$BUNDLE" | grep -q 'bashrc-sanitized.txt'; then
+    BASHRC_STATE=ok
+  else
+    echo "ERROR: could not add bashrc-sanitized.txt to $BUNDLE" >&2
+    BASHRC_STATE=fail
+  fi
+  rm -f "$SANITIZED"
+else
+  echo "WARN: $BASHRC not readable -- this backup has no bashrc copy" >&2
+fi
 
 LOCAL_SIZE=$(stat -c %s "$STAGING/$BUNDLE")
 R3S_OK=0
@@ -71,9 +114,9 @@ fi
 # 5) cleanup local staging (M6 is copy #1; keep nothing here)
 rm -f "$STAGING/$BUNDLE"
 
-if [ "$R3S_OK" = 1 ] && [ "$S3_OK" = 1 ]; then
-  echo "backup OK: $BUNDLE r3s=ok s3=ok"
+if [ "$R3S_OK" = 1 ] && [ "$S3_OK" = 1 ] && [ "$BASHRC_STATE" != fail ]; then
+  echo "backup OK: $BUNDLE r3s=ok s3=ok bashrc=$BASHRC_STATE"
   exit 0
 fi
-echo "backup FAILED: $BUNDLE r3s=$([ "$R3S_OK" = 1 ] && echo ok || echo fail) s3=$([ "$S3_OK" = 1 ] && echo ok || echo fail)" >&2
+echo "backup FAILED: $BUNDLE r3s=$([ "$R3S_OK" = 1 ] && echo ok || echo fail) s3=$([ "$S3_OK" = 1 ] && echo ok || echo fail) bashrc=$BASHRC_STATE" >&2
 exit 1

@@ -20,7 +20,7 @@
 
 **重要實測**：Forgejo v15 的 `forgejo dump` **已自包含** `app.ini`（與 live 檔 sha256 一致）＋`forgejo-db.sql`＋
 原始 `data/forgejo.db`＋所有 repos → 不需另外打包，直接推 dump 的 `.zip` 即可。
-**傳輸**：R3S 無 rsync/sftp → 用 `ssh 'cat > 檔'`（`.partial`+`mv` 原子寫入）。**輪替**用 `find ... -mtime +30 -exec rm`。
+**傳輸**：R3S 無 rsync/sftp → 用 `ssh 'cat > 檔'`（`.partial`+`mv` 原子寫入）。**輪替**用 `find ... -mtime +30 -exec rm`（**2026-09-05 改為 `-mtime +7`**）。
 
 ---
 
@@ -46,6 +46,7 @@
 
 ### Phase 3 — systemd service + timer
 - [x] 安裝 `forgejo-backup.service`（oneshot，root）+ `forgejo-backup.timer`（`OnCalendar=*-*-* 03:30:00`，`Persistent=true`）。
+      → **2026-09-05 改為每 4 小時**：`OnCalendar=*-*-* 03/4:30:00`，保留 R3S 7 天、S3 lifecycle 7 天。
   **正本：`../forgejo-backup/`**。
 - [x] `daemon-reload` + `enable --now` timer；經 systemd `start` 跑一次 → `status=0/SUCCESS`（證明無 tty 也 OK）。
 - [x] `list-timers` 顯示下次 **2026-06-21 03:30 CST**。
