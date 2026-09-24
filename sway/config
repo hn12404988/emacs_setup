@@ -18,6 +18,15 @@ set $term footclient
 # Your preferred application launcher
 set $menu wmenu-run
 
+### Appearance
+#
+# No title bar on tiled/floating windows: saves one text-row of vertical space
+# per window. A 1px border stays so the focused window is still visible.
+# Note: tabbed ($mod+w) and stacked ($mod+s) layouts still draw titles --
+# that is the tab strip itself, not the title bar, and cannot be removed.
+default_border pixel 1
+default_floating_border pixel 1
+
 ### Output configuration
 #
 # Default wallpaper (more resolutions are available in /usr/share/backgrounds/sway/)
@@ -220,6 +229,19 @@ bindsym $mod+r mode "resize"
 bar {
     position top
 
+    # Hidden by default to reclaim its row of screen space.
+    #
+    # Sway has no hover-to-reveal: swaybar unhides only while the modifier
+    # key is held down, or when a window raises an urgency hint. The pointer
+    # position is not exposed over the sway IPC at all, so a "mouse near the
+    # top edge" script is not possible without writing a layer-shell client.
+    #
+    # So: hold $mod (Super) and the bar appears; let go and it is gone.
+    # $mod+Shift+b below pins it back to always-visible.
+    mode hide
+    hidden_state hide
+    modifier $mod
+
     # When the status_command prints a new line to stdout, swaybar updates.
     # The default just shows the current date and time.
     status_command ~/.config/sway/status.sh
@@ -227,9 +249,28 @@ bar {
     colors {
         statusline #ffffff
         background #323232
-        inactive_workspace #32323200 #32323200 #5c5c5c
+
+        # Order is <border> <background> <text>.
+        #
+        # These must be 6-digit, NOT 8-digit. The 8-digit form is RGBA, and
+        # this line used to read "#32323200 #32323200 #5c5c5c" -- alpha 00.
+        # swaybar draws the button background with a replace (not blend), so
+        # alpha 00 punched a fully transparent hole clean through the bar
+        # surface: the window behind showed through the workspace buttons.
+        # Measured over a solid #cc0000 test window, pixels x=0..59 of the
+        # bar came back #cc0000, not #323232.
+        #
+        # #323232 is the bar's own background, so the buttons still look flat
+        # and borderless -- they just are not see-through any more. The text
+        # went #5c5c5c -> #cccccc; #5c5c5c on #323232 is about 1.5:1 contrast,
+        # unreadable. The focused workspace still stands out by its blue
+        # background (sway's default #285577), not by being brighter.
+        inactive_workspace #323232 #323232 #cccccc
     }
 }
+
+# Pin the bar on / off permanently (toggles its mode between hide and dock).
+bindsym $mod+Shift+b bar mode toggle
 
 include /etc/sway/config.d/*
 
